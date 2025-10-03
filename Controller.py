@@ -8,6 +8,7 @@ from PyQt5.QtCore import QCoreApplication
 from qasync import QEventLoop
 
 from LoggerManager import Logger
+from PressureAdquisition import PressureReader
 
 class Controlador:
     def __init__(self):
@@ -26,6 +27,11 @@ class Controlador:
         # Logger
         # -----------------------------------------
         self.logger = Logger()
+
+        # -----------------------------------------
+        # Presión
+        # -----------------------------------------
+        self.pressure = PressureReader(loop=self.loop, logger=self.logger)
 
     async def quit(self, sig=None):
         self.logger.log(app="Controlador", func="quit", level=0,
