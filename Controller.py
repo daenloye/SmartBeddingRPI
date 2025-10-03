@@ -32,10 +32,13 @@ class Controlador:
         # Presión
         # -----------------------------------------
         self.pressure = PressureReader(loop=self.loop, logger=self.logger)
+        self.pressure.start()          # inicializa y prepara el hilo
 
     async def quit(self, sig=None):
         self.logger.log(app="Controlador", func="quit", level=0,
                         msg=f"Ha llegado la señal de salida ({sig})")
+        
+        self.pressure.shutdown() # detiene el muestreo y cierra el hilo
 
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         [t.cancel() for t in tasks]
@@ -71,11 +74,21 @@ class Controlador:
     async def start(self):
         self.logger.log(app="Controlador", func="start", level=0,
                         msg="Iniciando lógica principal")
+        
+        # Conectar la señal del worker a un método local
+        self.pressure.worker.new_sample.connect(self.on_new_pressure)
+        
+        self.pressure.begin_sampling()  # comienza el muestreo de presión
+
+
         # while True:
         #     await asyncio.sleep(1)
         #     self.logger.log(app="Controlador", func="start", level=0,
         #                     msg="Tick de vida")
 
+    def on_new_pressure(self, matrix):
+        self.logger.log(app="Controlador", func="on_new_pressure", level=0,
+                        msg=f"Llegó una muestra de presión con shape {matrix.shape}")
 
 if __name__ == "__main__":
     c = Controlador()
