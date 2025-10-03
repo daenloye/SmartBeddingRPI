@@ -1,3 +1,5 @@
+#
+
 import sys
 import asyncio
 import signal
@@ -6,7 +8,6 @@ from PyQt5.QtCore import QCoreApplication
 from qasync import QEventLoop
 
 from LoggerManager import Logger
-
 
 class Controlador:
     def __init__(self):
@@ -27,11 +28,16 @@ class Controlador:
         self.logger = Logger()
 
     async def quit(self, sig=None):
-        """
-        Finaliza el bucle de eventos de forma segura
-        """
         self.logger.log(app="Controlador", func="quit", level=0,
                         msg=f"Ha llegado la señal de salida ({sig})")
+
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        [t.cancel() for t in tasks]
+
+        self.logger.log(app="Controlador", func="quit", level=0,
+                        msg=f"Cancelando {len(tasks)} tareas pendientes...")
+
+        await asyncio.gather(*tasks, return_exceptions=True)
         self.loop.stop()
 
     def run(self):
@@ -46,6 +52,7 @@ class Controlador:
         # Ejecutar el bucle de eventos
         with self.loop:
             try:
+                self.loop.create_task(self.start())
                 self.loop.run_forever()
             except Exception as e:
                 self.logger.log(app="Controlador", func="run", level=2,
@@ -54,6 +61,14 @@ class Controlador:
                 self.logger.log(app="Controlador", func="Close", level=0,
                                 msg="Cerrando sistema")
                 self.loop.close()
+
+    async def start(self):
+        self.logger.log(app="Controlador", func="start", level=0,
+                        msg="Iniciando lógica principal")
+        # while True:
+        #     await asyncio.sleep(1)
+        #     self.logger.log(app="Controlador", func="start", level=0,
+        #                     msg="Tick de vida")
 
 
 if __name__ == "__main__":
