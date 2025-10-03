@@ -86,9 +86,9 @@ class Controlador:
         #     self.logger.log(app="Controlador", func="start", level=0,
         #                     msg="Tick de vida")
 
-    def on_new_pressure(self, matrix):
+    def on_new_pressure(self, timestamp,matrix):
         self.logger.log(app="Controlador", func="on_new_pressure", level=0,
-                        msg=f"Llegó una muestra de presión con shape {matrix.shape}")
+                        msg=f"Llegó una muestra de presión con shape {matrix.shape} y timestamp {timestamp}")
 
 if __name__ == "__main__":
     c = Controlador()
