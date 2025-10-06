@@ -41,7 +41,7 @@ class RecordWorker(QObject):
                         {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
                         for d in self.record.pressureData
                     ],
-                    "aceleration": [
+                    "acceleration": [
                         {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
                         for d in self.record.acelerationData
                     ]

@@ -9,7 +9,7 @@ from qasync import QEventLoop
 
 from LoggerManager import Logger
 from PressureAdquisition import PressureReader
-from AcelerationAdquisition import AccelerationReader
+from AccelerationAdquisition import AccelerationReader
 from Model import Model
 
 class Controlador:
@@ -45,7 +45,7 @@ class Controlador:
         # -----------------------------------------
         # Aceleración/Giroscopio
         # -----------------------------------------
-        self.aceleration = AccelerationReader(interval=0.05)  # 20 Hz
+        self.acceleration = AccelerationReader(interval=0.05)  # 20 Hz
 
         # -----------------------------------------
         # Flags de Status
@@ -58,7 +58,7 @@ class Controlador:
                         msg=f"Ha llegado la señal de salida ({sig})")
         
         self.pressure.shutdown() # detiene el muestreo y cierra el hilo
-        self.aceleration.stop()  # detiene el muestreo y cierra el hilo
+        self.acceleration.stop()  # detiene el muestreo y cierra el hilo
 
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         [t.cancel() for t in tasks]
@@ -98,10 +98,10 @@ class Controlador:
         # Conectar la señal del worker a un método local
         self.pressure.worker.new_sample.connect(self.on_new_pressure)
 
-        self.aceleration.worker.new_sample.connect(self.on_new_aceleration)
+        self.acceleration.worker.new_sample.connect(self.on_new_acceleration)
         
         self.pressure.begin_sampling()  # comienza el muestreo de presión
-        self.aceleration.start()        # comienza el muestreo de aceleración/giroscopio
+        self.acceleration.start()        # comienza el muestreo de aceleración/giroscopio
 
 
         # while True:
@@ -117,8 +117,8 @@ class Controlador:
         #Enviar a almacenar
         self.model.storePressure(timestamp, matrix)
         
-    def on_new_aceleration(self, timestamp,matrix):
-        # self.logger.log(app="Controlador", func="on_new_aceleration", level=0,
+    def on_new_acceleration(self, timestamp,matrix):
+        # self.logger.log(app="Controlador", func="on_new_acceleration", level=0,
         #                 msg=f"Llegó una muestra de aceleración con shape {matrix.shape} y timestamp {timestamp}")
         
         #Enviar a almacenar
