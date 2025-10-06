@@ -31,10 +31,16 @@ class Controlador:
         self.logger = Logger()
 
         # -----------------------------------------
+        # Flag de almacenar archivos de depuración
+        # -----------------------------------------
+
+        self.debugFiles=True
+
+        # -----------------------------------------
         # Modelo de datos
         # -----------------------------------------
 
-        self.model = Model(self.logger)
+        self.model = Model(self.logger,self.debugFiles)
 
         # -----------------------------------------
         # Presión

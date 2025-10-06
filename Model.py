@@ -10,12 +10,13 @@ import json
 class RecordWorker(QObject):
     finished = pyqtSignal()
 
-    def __init__(self, record, folder, id, logger):
+    def __init__(self, record, folder, id, logger,debug):
         super().__init__()
         self.record:MinuteRecord = record
         self.logger = logger
         self.id=id
         self.folder = folder
+        self.debug=debug
 
     def run(self):
         try:
@@ -33,29 +34,31 @@ class RecordWorker(QObject):
             # self.logger.log(app="Modelo", func="RecordWorker", level=0,
             #                 msg=f"Estructura aceleración: {self.record.acelerationData[0]}")
 
-            data = {
-                "initTimestamp": self.record.initTimestamp,
-                "finishTimestamp": self.record.finishTimestamp,
-                "dataRaw": {
-                    "pressure": [
-                        {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
-                        for d in self.record.pressureData
-                    ],
-                    "acceleration": [
-                        {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
-                        for d in self.record.acelerationData
-                    ]
-                },
-                "metrics": {
-                    "respiratoryRate": None,
-                    "heartRate": None,
-                    "movementIndex": None,
-                    "position": None
+            # Almaceno el JSON si está en modo debug
+            if self.debug:
+                data = {
+                    "initTimestamp": self.record.initTimestamp,
+                    "finishTimestamp": self.record.finishTimestamp,
+                    "dataRaw": {
+                        "pressure": [
+                            {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
+                            for d in self.record.pressureData
+                        ],
+                        "acceleration": [
+                            {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
+                            for d in self.record.acelerationData
+                        ]
+                    },
+                    "metrics": {
+                        "respiratoryRate": None,
+                        "heartRate": None,
+                        "movementIndex": None,
+                        "position": None
+                    }
                 }
-            }
 
-            with open(os.path.join(self.folder,f"reg_{self.id}.json"),"w") as f:
-                json.dump(data, f, ensure_ascii=False)
+                with open(os.path.join(self.folder,f"reg_{self.id}.json"),"w") as f:
+                    json.dump(data, f, ensure_ascii=False)
 
             # Log de fin
             self.logger.log(app="Modelo", func="RecordWorker", level=0,
@@ -93,10 +96,11 @@ class MinuteRecord:
 #------------------------------------------------------
 
 class Model(QObject):
-    def __init__(self,logger=None):
+    def __init__(self,logger=None,degugFiles=False):
         super().__init__()
 
         self.logger = logger
+        self.debugFiles=degugFiles
 
         self.currentRecord = None  # Variable que almacena el registro actual
         self.lastRecord = None     # Variable que almacena el último registro guardado
@@ -159,7 +163,7 @@ class Model(QObject):
 
         # Lanza el procesamiento en segundo plano
         self.thread = QThread()
-        worker = RecordWorker(self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger)
+        worker = RecordWorker(self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles)
         worker.moveToThread(self.thread)
 
         self.thread.started.connect(worker.run)
