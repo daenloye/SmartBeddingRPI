@@ -3,6 +3,20 @@ import numpy as np
 from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal
 import os
 import json
+from scipy.signal import lfilter, filtfilt, detrend
+
+# Coeficientes del filtro
+b_rrs = [4.975743576868226e-05, 0.0, -0.00014927230730604678, 0.0,
+         0.00014927230730604678, 0.0, -4.975743576868226e-05]
+
+a_rrs = [1.0, -5.830766569820652, 14.185404142052889, -18.43141872929975,
+         13.489689338789688, -5.2728999261646115, 0.8599919781204693]
+
+b_crs = [0.0010739281487746567, 0.0, -0.004295712595098627, 0.0, 
+         0.006443568892647941, 0.0, -0.004295712595098627, 0.0, 0.0010739281487746567]
+
+a_crs = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.03663934201975, 
+         -24.062919294682047, 10.877684610556427, -2.8761856141583015, 0.34094015209888484]
 
 #------------------------------------------------------
 # Worker: procesa y guarda un registro en segundo plano
@@ -34,6 +48,31 @@ class RecordWorker(QObject):
             # self.logger.log(app="Modelo", func="RecordWorker", level=0,
             #                 msg=f"Estructura aceleración: {self.record.acelerationData[0]}")
 
+            # ------------------------------------------
+            # Procesamiento de datos
+            # ------------------------------------------
+
+            # El formato es: [gx, gy, gz, ax, ay, az]
+            acel_raw=np.array([d['measure'] for d in self.record.acelerationData])
+            acel_filtered_rrs = acel_raw.copy()
+            acel_filtered_crs = acel_raw.copy()
+
+            # Se aplica el filtro para frecuencia respiratoria solo a gx, gy y gz, que son las 3 primeras columnas
+            for i in range(3):
+                acel_filtered_rrs[:, i] = filtfilt(b_rrs, a_rrs, acel_raw[:, i])
+                acel_filtered_crs[:, i] = filtfilt(b_crs, a_crs, acel_raw[:, i])
+
+            # Calculo la señal RRS
+            RRS=(0.7)*acel_filtered_rrs[:,0]+(0.22)*acel_filtered_rrs[:,1]+(0.0775)*acel_filtered_rrs[:,2]
+            RRS_detrended=detrend(RRS)
+
+            # Calculo la señal CRS
+            CRS=(0.54633)*acel_filtered_crs[:,0]+(0.31161)*acel_filtered_crs[:,1]+(0.15108)*acel_filtered_crs[:,2]
+
+
+            # ----------------------------------
+            # Almacenamiento
+
             # Almaceno el JSON si está en modo debug
             if self.debug:
                 data = {
@@ -49,6 +88,10 @@ class RecordWorker(QObject):
                             for d in self.record.acelerationData
                         ],
                         "environment": self.record.environmentData
+                    },
+                    "dataProcessed": {
+                        "RRS": RRS_detrended.tolist(),
+                        "CRS": CRS.tolist()
                     },
                     "measures": {
                         "respiratoryRate": None,
