@@ -8,6 +8,7 @@ from PyQt5.QtCore import QCoreApplication
 from qasync import QEventLoop
 
 from LoggerManager import Logger
+from EnvironmentAdquisition import EnvironmentManager
 from PressureAdquisition import PressureReader
 from AccelerationAdquisition import AccelerationReader
 from Model import Model
@@ -41,6 +42,13 @@ class Controlador:
         # -----------------------------------------
 
         self.model = Model(self.logger,self.debugFiles)
+
+        # -----------------------------------------
+        # Ambiente
+        # -----------------------------------------
+        self.environment = EnvironmentManager(interval=20_000, max_samples=3, logger=self.logger)  # cada 20 s, 3 muestras
+        self.environment.new_sample.connect(self.on_env_sample)
+        self.environment.start()          # inicializa y prepara el hilo
 
         # -----------------------------------------
         # Presión
@@ -129,6 +137,11 @@ class Controlador:
         
         #Enviar a almacenar
         self.model.storeAcceleration(timestamp, matrix)
+
+
+    def on_env_sample(self, timestamp, temperature, humidity):
+        #Enviar a almacenar
+        self.model.storeEnvironment(timestamp, temperature, humidity)
 
 if __name__ == "__main__":
     c = Controlador()

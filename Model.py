@@ -47,9 +47,10 @@ class RecordWorker(QObject):
                         "acceleration": [
                             {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
                             for d in self.record.acelerationData
-                        ]
+                        ],
+                        "environment": self.record.environmentData
                     },
-                    "metrics": {
+                    "measures": {
                         "respiratoryRate": None,
                         "heartRate": None,
                         "movementIndex": None,
@@ -79,6 +80,7 @@ class MinuteRecord:
     def __init__(self):
         self.pressureData = []  # Lista para almacenar los datos de presión
         self.acelerationData = []  # Lista para almacenar los datos de aceleración
+        self.environmentData = []  # Diccionario para almacenar la última muestra de ambiente
         self.initTimestamp=0
         self.finishTimestamp=0
 
@@ -87,6 +89,9 @@ class MinuteRecord:
 
     def storeAcceleration(self, timestamp, acceleration):
         self.acelerationData.append({'timestamp': timestamp, 'measure': acceleration})
+
+    def storeEnvironment(self, timestamp, temperature, humidity):
+        self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
 
     def checkFull(self):
         return len(self.pressureData) >= 60 and len(self.acelerationData) >= 60*20
@@ -134,6 +139,10 @@ class Model(QObject):
     #-----------------------------------------
     # Método para almacenar los registros de aceleración y presión
     #-----------------------------------------
+
+    def storeEnvironment(self, timestamp, temperature, humidity):
+        if self.currentRecord is not None:
+            self.currentRecord.storeEnvironment(timestamp, temperature, humidity)
 
     def storePressure(self, timestamp, pressure):
         if self.currentRecord is None:
