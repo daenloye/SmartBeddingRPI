@@ -4,6 +4,7 @@ from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal
 import os
 import json
 from scipy.signal import lfilter, filtfilt, detrend
+import psutil
 
 # Coeficientes del filtro
 b_rrs = [4.975743576868226e-05, 0.0, -0.00014927230730604678, 0.0,
@@ -38,16 +39,6 @@ class RecordWorker(QObject):
             self.logger.log(app="Modelo", func="RecordWorker", level=0,
                             msg=f"Procesando registro de {self.record.initTimestamp} a {self.record.finishTimestamp}")
 
-            # Aquí haces el procesamiento pesado (ej: guardar a disco)
-            # save_to_disk(self.record)
-            # o np.save(f"record_{self.record.initTimestamp}.npy", self.record.pressureData)
-
-            #Genero la estructura de JSON de almacenamiento
-            # self.logger.log(app="Modelo", func="RecordWorker", level=0,
-            #                 msg=f"Estructura presión: {self.record.pressureData[0]}")
-            # self.logger.log(app="Modelo", func="RecordWorker", level=0,
-            #                 msg=f"Estructura aceleración: {self.record.acelerationData[0]}")
-
             # ------------------------------------------
             # Procesamiento de datos
             # ------------------------------------------
@@ -70,8 +61,25 @@ class RecordWorker(QObject):
             CRS=(0.54633)*acel_filtered_crs[:,0]+(0.31161)*acel_filtered_crs[:,1]+(0.15108)*acel_filtered_crs[:,2]
 
 
+            # ------------------------------------------
+            # Medición de rendimiento
+            # ------------------------------------------
+
+            # --- CPU ---
+            cpu_percent = psutil.cpu_percent(interval=1)   # Porcentaje de uso total
+            cpu_cores = psutil.cpu_count(logical=True)     # Núcleos lógicos
+            cpu_freq = psutil.cpu_freq()                   # Frecuencia actual, min, max
+
+            # --- Memoria RAM ---
+            mem = psutil.virtual_memory()
+            mem_total = mem.total / (1024 ** 3)            # en GB
+            mem_available = mem.available / (1024 ** 3)
+            mem_used = mem.used / (1024 ** 3)
+            mem_percent = mem.percent
+
             # ----------------------------------
             # Almacenamiento
+            # ----------------------------------
 
             # Almaceno el JSON si está en modo debug
             if self.debug:
@@ -98,6 +106,21 @@ class RecordWorker(QObject):
                         "heartRate": None,
                         "movementIndex": None,
                         "position": None
+                    },
+                    "performance": {
+                        "cpu": {
+                            "percent": cpu_percent,
+                            "cores": cpu_cores,
+                            "freq_current": cpu_freq.current,
+                            "freq_min": cpu_freq.min,
+                            "freq_max": cpu_freq.max
+                        },
+                        "memory": {
+                            "total_GB": mem_total,
+                            "available_GB": mem_available,
+                            "used_GB": mem_used,
+                            "percent": mem_percent
+                        }
                     }
                 }
 
