@@ -12,7 +12,7 @@ class Logger:
         self.logger.propagate = False
 
         formatter = logging.Formatter(
-            "%(asctime)-23s %(levelname)-8s %(app)15s: %(func)-25s -> %(message)s",
+            "%(asctime)s.%(msecs)03d %(levelname)-8s %(app)15s: %(func)-25s -> %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S"
         )
 
