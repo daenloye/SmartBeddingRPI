@@ -116,7 +116,7 @@ class Model(QObject):
         self.initStore()
 
         #Variable de thread
-        self.thread = None
+        self.thread = []
 
     #-----------------------------------------
     # Método para inicializar el almacenamiento
@@ -171,16 +171,27 @@ class Model(QObject):
         # self.lastRecord = self.currentRecord #Lo pasa a lastRecord
 
         # Lanza el procesamiento en segundo plano
-        self.thread = QThread()
+        thread = QThread()
         worker = RecordWorker(self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles)
-        worker.moveToThread(self.thread)
+        worker.moveToThread(thread)
 
-        self.thread.started.connect(worker.run)
-        worker.finished.connect(self.thread.quit)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
+        thread.finished.connect(thread.deleteLater)
 
-        self.thread.start()
+        # Cuando el hilo termine, eliminarlo de la lista
+        def remove_thread():
+            if thread in self.thread:
+                self.thread.remove(thread)
+                self.logger.log(app="Modelo", func="startNextRecord", level=1,
+                                msg=f"Hilo de RecordWorker finalizado y eliminado ({len(self.thread)} restantes)")
+
+        thread.finished.connect(remove_thread)
+
+        thread.start()
+
+        self.thread.append(thread)  # Mantener una referencia al hilo
         
         #Crear uno nuevo
         self.currentRecord = MinuteRecord()
