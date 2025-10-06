@@ -2,6 +2,7 @@
 import numpy as np
 from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal
 import os
+import json
 
 #------------------------------------------------------
 # Worker: procesa y guarda un registro en segundo plano
@@ -26,10 +27,35 @@ class RecordWorker(QObject):
             # save_to_disk(self.record)
             # o np.save(f"record_{self.record.initTimestamp}.npy", self.record.pressureData)
 
-            with open(os.path.join(self.folder,f"reg_{self.id}.txt"),"w") as f:
-                f.write(f"Registro de {self.record.initTimestamp} a {self.record.finishTimestamp}\n")
-                f.write(f"Datos de presión: {len(self.record.pressureData)} muestras\n")
-                f.write(f"Datos de aceleración: {len(self.record.acelerationData)} muestras\n")
+            #Genero la estructura de JSON de almacenamiento
+            # self.logger.log(app="Modelo", func="RecordWorker", level=0,
+            #                 msg=f"Estructura presión: {self.record.pressureData[0]}")
+            # self.logger.log(app="Modelo", func="RecordWorker", level=0,
+            #                 msg=f"Estructura aceleración: {self.record.acelerationData[0]}")
+
+            data = {
+                "initTimestamp": self.record.initTimestamp,
+                "finishTimestamp": self.record.finishTimestamp,
+                "dataRaw": {
+                    "pressure": [
+                        {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
+                        for d in self.record.pressureData
+                    ],
+                    "aceleration": [
+                        {"timestamp": d["timestamp"], "measure": d["measure"].tolist()}
+                        for d in self.record.acelerationData
+                    ]
+                },
+                "metrics": {
+                    "respiratoryRate": None,
+                    "heartRate": None,
+                    "movementIndex": None,
+                    "position": None
+                }
+            }
+
+            with open(os.path.join(self.folder,f"reg_{self.id}.json"),"w") as f:
+                json.dump(data, f, ensure_ascii=False)
 
             # Log de fin
             self.logger.log(app="Modelo", func="RecordWorker", level=0,
