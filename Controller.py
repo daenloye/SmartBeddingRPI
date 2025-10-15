@@ -12,6 +12,7 @@ from EnvironmentAdquisition import EnvironmentManager
 from PressureAdquisition import PressureReader
 from AccelerationAdquisition import AccelerationReader
 from Model import Model
+from AudioRecorder import AudioRecorder
 
 class Controlador:
     def __init__(self):
@@ -60,6 +61,13 @@ class Controlador:
         # Aceleración/Giroscopio
         # -----------------------------------------
         self.acceleration = AccelerationReader(interval=0.05)  # 20 Hz
+
+        # -----------------------------------------
+        # Sonido
+        # -----------------------------------------
+
+        self.audio = AudioRecorder(self.logger,self.model.getCurrentFolder(), duration=60,samplerate=44100, channels=1)
+        self.audio.start()
 
         # -----------------------------------------
         # Flags de Status

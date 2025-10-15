@@ -270,3 +270,6 @@ class Model(QObject):
 
         self.idCurrentRecord += 1
 
+    def getCurrentFolder(self):
+        return self.currentFolder
+
