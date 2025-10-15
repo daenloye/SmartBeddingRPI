@@ -22,6 +22,8 @@ a_crs = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.0
 #------------------------------------------------------
 # Worker: procesa y guarda un registro en segundo plano
 #------------------------------------------------------
+
+
 class RecordWorker(QObject):
     finished = pyqtSignal()
 
@@ -32,6 +34,92 @@ class RecordWorker(QObject):
         self.id=id
         self.folder = folder
         self.debug=debug
+
+    def calculate_resp_freq_zero_cross(self,signal, time, sample_restriction, slope_window=5):
+
+        signal = np.asarray(signal).flatten()
+        time = np.asarray(time).flatten()
+        if len(signal) != len(time):
+            raise ValueError("signal y time deben tener la misma longitud")
+
+        # 1. Detección de cruces por cero (sin wrap-around)
+        zx = np.where(signal[:-1] * signal[1:] <= 0)[0]  # índices k donde hay cruce entre k y k+1
+
+        # 2. Eliminar cruces demasiado cercanos
+        if zx.size == 0:
+            return np.nan
+        cross_values = [zx[0]]
+        for i in range(1, len(zx)):
+            if abs(zx[i] - cross_values[-1]) > sample_restriction:
+                cross_values.append(zx[i])
+        cross_values = np.array(cross_values, dtype=int)
+
+        if len(cross_values) < 3:
+            return np.nan
+
+        # 3. Calcular pendientes (polaridades)
+        polarities = np.zeros(len(cross_values), dtype=float)
+        for i, idx in enumerate(cross_values):
+            # idx es un índice k (cruce entre k y k+1), aproximamos pendiente según ventana
+            if idx - slope_window > 0 and idx + slope_window < len(signal):
+                slope = signal[idx + slope_window] - signal[idx - slope_window]
+            elif idx - slope_window <= 0 and idx + slope_window < len(signal):
+                slope = signal[idx + slope_window] - signal[idx]
+            elif idx + slope_window >= len(signal) and idx - slope_window > 0:
+                slope = signal[idx] - signal[idx - slope_window]
+            else:
+                slope = np.nan
+            polarities[i] = (slope > 0) if not np.isnan(slope) else np.nan
+
+        # 4. Contar respiraciones válidas (evitando "doble disparo")
+        resp_count = 0
+        is_valid = np.ones(len(cross_values), dtype=bool)
+        i = 2  # empezamos desde el tercer cruce (índice 2 en python)
+        first_resp_index = None
+
+        while i < len(cross_values):
+            # comparar polaridad actual con la anterior
+            # si alguna es nan, consideramos inválido y lo marcamos
+            if np.isnan(polarities[i]) or np.isnan(polarities[i-1]):
+                is_valid[i] = False
+                i += 1
+                continue
+
+            if polarities[i] != polarities[i-1]:
+                if first_resp_index is None:
+                    first_resp_index = i - 2
+                resp_count += 1
+                i += 2  # salto dos cruces (una respiración completa)
+            else:
+                # mismo signo consecutivo -> posible "doble disparo": eliminar i
+                is_valid[i] = False
+                i += 1
+
+        valid_crosses = cross_values[is_valid]
+        valid_polarities = polarities[is_valid]
+
+        if first_resp_index is None or len(valid_crosses) < 3:
+            return np.nan
+
+        try:
+            mapped_first = np.where(valid_crosses == cross_values[first_resp_index])[0][0]
+        except Exception:
+            # si no se puede mapear, fallback: usar el primer índice válido
+            mapped_first = 0
+
+        if valid_polarities[mapped_first] != valid_polarities[-1]:
+            last_resp_index = valid_crosses[-2]
+        else:
+            last_resp_index = valid_crosses[-1]
+
+        # 6. Cálculo de duración y frecuencia
+        range_time = time[last_resp_index] - time[valid_crosses[0]]
+        if range_time <= 0:
+            return np.nan
+
+        resp_freq = resp_count * 60.0 / range_time
+
+        return resp_freq
 
     def run(self):
         try:
@@ -60,6 +148,16 @@ class RecordWorker(QObject):
             # Calculo la señal CRS
             CRS=(0.54633)*acel_filtered_crs[:,0]+(0.31161)*acel_filtered_crs[:,1]+(0.15108)*acel_filtered_crs[:,2]
 
+            # ------------------------------------------
+            # Estimación de frecuencia respiratoria
+            # ------------------------------------------
+
+            RRS_freq = self.calculate_resp_freq_zero_cross(
+                RRS_detrended,
+                np.arange(len(RRS_detrended)) * 0.05,  # vector de tiempos (20 Hz)
+                sample_restriction=20,  # mínimo 1 s entre cruces
+                slope_window=5
+            )
 
             # ------------------------------------------
             # Medición de rendimiento
@@ -102,7 +200,7 @@ class RecordWorker(QObject):
                         "CRS": CRS.tolist()
                     },
                     "measures": {
-                        "respiratoryRate": None,
+                        "respiratoryRate": RRS_freq,
                         "heartRate": None,
                         "movementIndex": None,
                         "position": None

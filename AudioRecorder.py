@@ -22,7 +22,7 @@ class AudioRecorder(QThread):
         self.numRecord=1
 
     def stop(self):
-        """Detiene la grabación continua de forma segura."""
+        """Detiene la grabacion continua de forma segura."""
         self._running = False
 
     def run(self):
@@ -62,29 +62,27 @@ class AudioRecorder(QThread):
                 self.numRecord+=1
 
             except Exception as e:
-                err = f"[ERROR] Falló la grabación: {e}"
-                print(err)
-                self.error.emit(err)
+                self.logger.log(app="AudioRecorder", func="start", level=2,msg="Fallo en la grabación", error=e)
                 time.sleep(1)  # evita bucle rápido de errores
 
-        print("[INFO] Grabador continuo detenido.")
+        #print("[INFO] Grabador continuo detenido.")
 
 
 # --- Ejemplo de uso directo ---
-if __name__ == "__main__":
-    from PyQt5.QtWidgets import QApplication
-    import sys
+# if __name__ == "__main__":
+#     from PyQt5.QtWidgets import QApplication
+#     import sys
 
-    app = QApplication(sys.argv)
+#     app = QApplication(sys.argv)
 
-    recorder = AudioRecorder(duration=10)  # 10 s por ciclo para prueba
-    recorder.new_file.connect(lambda f: print(f"[SIGNAL] Nuevo archivo: {f}"))
-    recorder.error.connect(lambda e: print(f"[SIGNAL] Error: {e}"))
+#     recorder = AudioRecorder(duration=10)  # 10 s por ciclo para prueba
+#     recorder.new_file.connect(lambda f: print(f"[SIGNAL] Nuevo archivo: {f}"))
+#     recorder.error.connect(lambda e: print(f"[SIGNAL] Error: {e}"))
 
-    recorder.start()
+#     recorder.start()
 
-    # Detener manualmente luego de 3 ciclos de 10s (para probar)
-    from PyQt5.QtCore import QTimer
-    QTimer.singleShot(31000*10, recorder.stop)  # detiene a los 31 s
+#     # Detener manualmente luego de 3 ciclos de 10s (para probar)
+#     from PyQt5.QtCore import QTimer
+#     QTimer.singleShot(31000*10, recorder.stop)  # detiene a los 31 s
 
-    sys.exit(app.exec_())
+#     sys.exit(app.exec_())
