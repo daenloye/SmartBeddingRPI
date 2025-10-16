@@ -29,13 +29,14 @@ a_crs = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.0
 class RecordWorker(QObject):
     finished = pyqtSignal()
 
-    def __init__(self, record, folder, id, logger,debug):
+    def __init__(self, record, folder, id, logger,debug,position="R"):
         super().__init__()
         self.record:MinuteRecord = record
         self.logger = logger
         self.id=id
         self.folder = folder
         self.debug=debug
+        self.position=position
 
     def calculate_resp_freq_zero_cross(self,signal, time, sample_restriction, slope_window=5):
 
@@ -164,7 +165,7 @@ class RecordWorker(QObject):
 
             for presSample in presSamples:
                 try:
-                    prediccion=procesarMuestra(presSample,"R")
+                    prediccion=procesarMuestra(presSample,self.position)
                 except Exception as E:
                     self.logger.log(app="Modelo", func="RecordWorker", level=3,
                                     msg=f"Error procesando la matriz: {str(presSample), "error":str(e)}")
