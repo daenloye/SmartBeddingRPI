@@ -1,0 +1,16 @@
+Resumen del modelo:
+ID                                                               31249
+Modelo                                                  RF_max_20trees
+Num_Car                                                              8
+Características      [STD, Kurtosis, Coverage_REG3, Coverage_REG4, ...
+Accuracy                                                      0.757576
+Precision                                                     0.782716
+Recall                                                        0.757576
+F1                                                            0.758974
+Kappa                                                         0.636364
+Training Time (s)                                             0.080333
+Confusion Matrix                  [[23, 2, 8], [2, 23, 8], [2, 2, 29]]
+Name: 31249, dtype: object
+
+Características utilizadas:
+['STD', 'Kurtosis', 'Coverage_REG3', 'Coverage_REG4', 'Coverage_REG5', 'Coverage_REG6', 'Balance', 'CM_Y']

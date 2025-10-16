@@ -6,6 +6,8 @@ import json
 from scipy.signal import lfilter, filtfilt, detrend
 import psutil
 
+from PositionModel import procesarMuestra
+
 # Coeficientes del filtro
 b_rrs = [4.975743576868226e-05, 0.0, -0.00014927230730604678, 0.0,
          0.00014927230730604678, 0.0, -4.975743576868226e-05]
@@ -149,6 +151,52 @@ class RecordWorker(QObject):
             CRS=(0.54633)*acel_filtered_crs[:,0]+(0.31161)*acel_filtered_crs[:,1]+(0.15108)*acel_filtered_crs[:,2]
 
             # ------------------------------------------
+            # Estimación de posición del minuto
+            # ------------------------------------------
+
+            pred_vacio=0
+            pred_latDer=0
+            pred_latIzq=0
+            pred_supino=0
+
+            presSamples=[ d["measure"].tolist() for d in self.record.pressureData ]
+
+
+            for presSample in presSamples:
+                try:
+                    prediccion=procesarMuestra(presSample,"R")
+                except Exception as E:
+                    self.logger.log(app="Modelo", func="RecordWorker", level=3,
+                                    msg=f"Error procesando la matriz: {str(presSample), "error":str(e)}")
+
+                if prediccion==0:
+                    pred_latIzq+=1
+                elif prediccion==1:
+                    pred_latDer+=1
+                elif prediccion==2:
+                    pred_supino+=1
+                else:
+                    pred_vacio+=1
+
+            #Analizo cual es la posición mayoritaria
+            mayor=max(pred_vacio,pred_latDer,pred_latIzq,pred_supino)
+
+            posIndex=-1
+            
+            if mayor==pred_vacio:
+                posicion="Vacio"
+
+            elif mayor==pred_latDer:
+                posicion="Lateral Derecho"
+                posIndex=1
+            elif mayor==pred_latIzq:
+                posicion="Lateral Izquierdo"
+                posIndex=2
+            else:
+                posicion="Supino"
+                posIndex=3
+
+            # ------------------------------------------
             # Estimación de frecuencia respiratoria
             # ------------------------------------------
 
@@ -203,7 +251,18 @@ class RecordWorker(QObject):
                         "respiratoryRate": RRS_freq,
                         "heartRate": None,
                         "movementIndex": None,
-                        "position": None
+                        "position": {
+                            "estimations":{
+                                "Vacio": pred_vacio,
+                                "Lateral Derecho": pred_latDer,
+                                "Lateral Izquierdo": pred_latIzq,
+                                "Supino": pred_supino
+                            },
+                            "final": {
+                                "name": posicion,
+                                "index": posIndex
+                            }
+                        }
                     },
                     "performance": {
                         "cpu": {
