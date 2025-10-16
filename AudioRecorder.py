@@ -54,7 +54,7 @@ class AudioRecorder(QThread):
 
                 datet2= datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 
-                self.logger.log(app="AudioRecorder", func="start", level=0,msg="Se termina la grabacion de audio {datet2}")
+                self.logger.log(app="AudioRecorder", func="start", level=0,msg=f"Se termina la grabacion de audio {datet2}")
 
                 # Pausa corta (opcional)
                 time.sleep(0.1)

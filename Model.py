@@ -3,7 +3,7 @@ import numpy as np
 from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal
 import os
 import json
-from scipy.signal import lfilter, filtfilt, detrend
+from scipy.signal import lfilter, filtfilt, detrend, find_peaks
 import psutil
 
 from PositionModel import procesarMuestra
@@ -38,9 +38,12 @@ class RecordWorker(QObject):
         self.debug=debug
         self.position=position
 
-    def calculate_resp_freq_zero_cross(self,signal, time, sample_restriction, slope_window=5):
+    def calculate_resp_freq_zero_cross(self,signal, sample_restriction, slope_window=5):
 
         signal = np.asarray(signal).flatten()
+
+        time=np.arange(len(signal)) * 0.05,  # vector de tiempos (20 Hz)
+
         time = np.asarray(time).flatten()
         if len(signal) != len(time):
             raise ValueError("signal y time deben tener la misma longitud")
@@ -124,6 +127,26 @@ class RecordWorker(QObject):
 
         return resp_freq
 
+    def calculate_heart_rate_peaks(self, signal, min_peak_height, min_peak_distance, fs=20):
+        # Construir vector de tiempo según la frecuencia de muestreo
+        time_seconds = np.arange(len(signal)) / fs
+
+        # Convertir min_peak_distance (segundos) a número de muestras
+        dt = np.mean(np.diff(time_seconds))
+        min_samples = int(min_peak_distance / dt)
+
+        # Detección de picos
+        peaks, _ = find_peaks(signal, height=min_peak_height, distance=min_samples)
+        pk = signal[peaks]
+        lk = time_seconds[peaks]
+
+        # Cálculo de frecuencia cardíaca
+        diff_time = lk[-1] - lk[0]
+        heart_rate = len(pk[1:]) * 60 / diff_time  # bpm
+        heart_rate_variability = np.mean(np.diff(lk))
+
+        return heart_rate, heart_rate_variability
+
     def run(self):
         try:
             # Log de inicio
@@ -167,8 +190,13 @@ class RecordWorker(QObject):
                 try:
                     prediccion=procesarMuestra(presSample,self.position)
                 except Exception as E:
-                    self.logger.log(app="Modelo", func="RecordWorker", level=3,
-                                    msg=f"Error procesando la matriz: {str(presSample), "error":str(e)}")
+                    self.logger.log(
+                        app="Modelo",
+                        func="RecordWorker",
+                        level=3,
+                        msg=f"Error procesando la matriz: {presSample}",
+                        error=E
+                    )
 
                 if prediccion==0:
                     pred_latIzq+=1
@@ -202,11 +230,28 @@ class RecordWorker(QObject):
             # ------------------------------------------
 
             RRS_freq = self.calculate_resp_freq_zero_cross(
-                RRS_detrended,
-                np.arange(len(RRS_detrended)) * 0.05,  # vector de tiempos (20 Hz)
+                signal=RRS_detrended,
                 sample_restriction=20,  # mínimo 1 s entre cruces
                 slope_window=5
             )
+
+            self.logger.log(app="Modelo", func="RecordWorker", level=0,
+                            msg=f"RR calculada correctamente")
+
+
+            # ------------------------------------------
+            # Estimación de frecuencia cardiaca y variabilidad
+            # ------------------------------------------
+
+            HR,HRV=self.calculate_heart_rate_peaks(
+                signal=CRS,
+                min_peak_height=0,
+                min_peak_distance=0.5
+            )
+
+
+            self.logger.log(app="Modelo", func="RecordWorker", level=0,
+                            msg=f"HR y HRV calculadas correctamente")
 
             # ------------------------------------------
             # Medición de rendimiento
@@ -250,7 +295,8 @@ class RecordWorker(QObject):
                     },
                     "measures": {
                         "respiratoryRate": RRS_freq,
-                        "heartRate": None,
+                        "heartRate": HR,
+                        "heartRateVariability":HRV,
                         "movementIndex": None,
                         "position": {
                             "estimations":{
