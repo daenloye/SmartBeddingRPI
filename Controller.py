@@ -157,7 +157,7 @@ class Controlador:
         print(f"[Mensaje] {topic}: {payload}")
 
     def send_to_mqtt(self,data):
-        pass
+        self.mqtt.se
 
 if __name__ == "__main__":
     c = Controlador()
