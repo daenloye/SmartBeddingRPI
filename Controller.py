@@ -12,6 +12,7 @@ from EnvironmentAdquisition import EnvironmentManager
 from PressureAdquisition import PressureReader
 from AccelerationAdquisition import AccelerationReader
 from Model import Model
+from MQTTManager import MQTTManager
 from AudioRecorder import AudioRecorder
 
 class Controlador:
@@ -42,7 +43,14 @@ class Controlador:
         # Modelo de datos
         # -----------------------------------------
 
-        self.model = Model(self.logger,self.debugFiles)
+        self.model = Model(self, self.logger,self.debugFiles)
+
+        # -----------------------------------------
+        # Reporte de datos
+        # -----------------------------------------
+
+        self.mqtt=MQTTManager()
+        self.mqtt.message_received.connect(self.on_msg_mqtt)
 
         # -----------------------------------------
         # Ambiente
@@ -126,23 +134,12 @@ class Controlador:
         self.acceleration.start()        # comienza el muestreo de aceleración/giroscopio
 
 
-        # while True:
-        #     await asyncio.sleep(1)
-        #     self.logger.log(app="Controlador", func="start", level=0,
-        #                     msg="Tick de vida")
-
     def on_new_pressure(self, timestamp,matrix):
-        # #Loggear
-        # self.logger.log(app="Controlador", func="on_new_pressure", level=0,
-        #                 msg=f"Llegó una muestra de presión con shape {matrix.shape} y timestamp {timestamp}")
-        
         #Enviar a almacenar
         self.model.storePressure(timestamp, matrix)
         
     def on_new_acceleration(self, timestamp,matrix):
-        # self.logger.log(app="Controlador", func="on_new_acceleration", level=0,
-        #                 msg=f"Llegó una muestra de aceleración con shape {matrix.shape} y timestamp {timestamp}")
-        
+
         #Enviar a almacenar
         self.model.storeAcceleration(timestamp, matrix)
 
@@ -150,6 +147,17 @@ class Controlador:
     def on_env_sample(self, timestamp, temperature, humidity):
         #Enviar a almacenar
         self.model.storeEnvironment(timestamp, temperature, humidity)
+
+    # -----------------------------------------
+    # Métodos para enviar a MQTT
+    # -----------------------------------------
+
+
+    def on_msg_mqtt(self,topic, payload):
+        print(f"[Mensaje] {topic}: {payload}")
+
+    def send_to_mqtt(self,data):
+        pass
 
 if __name__ == "__main__":
     c = Controlador()

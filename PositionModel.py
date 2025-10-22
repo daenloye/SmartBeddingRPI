@@ -157,6 +157,17 @@ def centro_de_masa(matriz):
 def procesarMuestra(data_raw,side="R"):
     data = np.array(data_raw)
 
+    #Analizo valores para determinar si hay alguien o no
+    min=np.min(data)
+    max=np.max(data)
+    desv=np.std(data)
+    vari=np.var(data)
+
+    #Analizo si la sábana está vacía
+    if max>5000 or desv>700 or vari>60000:
+        return -1
+
+
     # Calculo kurtosis y std
     kurtosis, std = kurystd(data)
 

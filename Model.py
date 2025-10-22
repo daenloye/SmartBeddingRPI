@@ -8,6 +8,19 @@ import psutil
 
 from PositionModel import procesarMuestra
 
+#Eliminar los warnings
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=ImportWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# También suprime las advertencias específicas de sklearn
+from sklearn.exceptions import InconsistentVersionWarning
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+
 # Coeficientes del filtro
 b_rrs = [4.975743576868226e-05, 0.0, -0.00014927230730604678, 0.0,
          0.00014927230730604678, 0.0, -4.975743576868226e-05]
@@ -29,8 +42,9 @@ a_crs = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.0
 class RecordWorker(QObject):
     finished = pyqtSignal()
 
-    def __init__(self, record, folder, id, logger,debug,position="R"):
+    def __init__(self, controlador, record, folder, id, logger,debug,position="R"):
         super().__init__()
+        self.controlador=controlador
         self.record:MinuteRecord = record
         self.logger = logger
         self.id=id
@@ -331,6 +345,40 @@ class RecordWorker(QObject):
                 with open(os.path.join(self.folder,f"reg_{self.id}.json"),"w") as f:
                     json.dump(data, f, ensure_ascii=False)
 
+            # ------------------------------------------
+            # Reporte MQTT
+            # ------------------------------------------
+
+            if posIndex!=-1:
+
+                #        self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
+
+                MQTT_Report={
+                    "initTimestamp": self.record.initTimestamp,
+                    "finishTimestamp": self.record.finishTimestamp,
+                    "temperature":np.mean([d["temperature"] for d in self.environmentData]),
+                    "humidity":np.mean([d["humidity"] for d in self.environmentData]),
+                    "respiratoryRate": RRS_freq,
+                    "heartRate": HR,
+                    "heartRateVariability":HRV,
+                    "movementIndex": None,
+                    "position": {
+                        "estimations":{
+                            "Vacio": pred_vacio,
+                            "Lateral Derecho": pred_latDer,
+                            "Lateral Izquierdo": pred_latIzq,
+                            "Supino": pred_supino
+                        },
+                        "final": {
+                            "name": posicion,
+                            "index": posIndex
+                        }
+                    } 
+                }
+                
+                self.controlador.send_to_mqtt(MQTT_Report)
+
+
             # Log de fin
             self.logger.log(app="Modelo", func="RecordWorker", level=0,
                             msg=f"Registro {self.record.initTimestamp} procesado correctamente")
@@ -371,9 +419,11 @@ class MinuteRecord:
 #------------------------------------------------------
 
 class Model(QObject):
-    def __init__(self,logger=None,degugFiles=False):
+    def __init__(self,controlador, logger=None,degugFiles=False):
         super().__init__()
 
+
+        self.controlador=controlador
         self.logger = logger
         self.debugFiles=degugFiles
 
@@ -442,7 +492,7 @@ class Model(QObject):
 
         # Lanza el procesamiento en segundo plano
         thread = QThread()
-        worker = RecordWorker(self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles)
+        worker = RecordWorker(self.controlador, self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles)
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
