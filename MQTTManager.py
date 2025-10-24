@@ -4,19 +4,20 @@ import time
 import os
 from datetime import datetime
 import json
+import numpy as np
 
 class MQTTWorker(QThread):
     message_received = pyqtSignal(str, str)  # topic, payload
     connected = pyqtSignal()
     disconnected = pyqtSignal()
 
-    def __init__(self, server, port, client_id, password, topic_sub):
+    def __init__(self, server, port, client_id, password, bedding_id):
         super().__init__()
         self.server = server
         self.port = port
         self.client_id = client_id
         self.password = password
-        self.topic_sub = topic_sub
+        self.bedding_id = bedding_id
         self._running = True
         self._client = None
 
@@ -47,7 +48,8 @@ class MQTTWorker(QThread):
         if rc == 0:
             print("[MQTT] Conectado correctamente.")
             self.connected.emit()
-            client.subscribe(self.topic_sub)
+            client.subscribe(f"sb/response/{self.bedding_id}")
+            client.subscribe(f"sb/init/{self.bedding_id}")
         else:
             print(f"[MQTT] Error al conectar. Código: {rc}")
 
@@ -61,11 +63,18 @@ class MQTTWorker(QThread):
         self.disconnected.emit()
 
     def publish(self, topic, payload):
-        """Publica un mensaje en un topic"""
+        """Publica un mensaje en un topic y confirma si se envió."""
         if self._client and self._client.is_connected():
-            self._client.publish(topic, payload)
+            result = self._client.publish(topic, payload)
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                print(f"[MQTT] Mensaje publicado correctamente en {topic}")
+                return True
+            else:
+                print(f"[MQTT] Fallo al publicar en {topic}, código: {result.rc}")
+                return False
         else:
             print("[MQTT] No conectado. No se puede publicar.")
+            return False
 
 
 class MQTTManager(QObject):
@@ -84,6 +93,12 @@ class MQTTManager(QObject):
         self.timer = QTimer()
         self.timer.timeout.connect(self.processQueue)
         self.timer.start(30_000)  # 30 segundos
+
+        #Initialized data structure
+        self.inicializado=False
+        self.clientId="000001"
+        self.initTime=int(time.time())
+        self.firstMessage=True
 
         # Estructura base
         self.dataStructure = {
@@ -111,9 +126,9 @@ class MQTTManager(QObject):
         port = 8807
         client_id = "smartbedding_publisher"
         password = "Sb998?-Tx"
-        topic_sub = "sb/response/000001"
+        bedding_id=self.clientId
 
-        self.worker = MQTTWorker(server, port, client_id, password, topic_sub)
+        self.worker = MQTTWorker(server, port, client_id, password, bedding_id)
 
         # Conecta señales del worker
         self.worker.message_received.connect(self.message_received)
@@ -142,7 +157,16 @@ class MQTTManager(QObject):
     # === Envío MQTT ===
     def send_message(self, topic, payload):
         if self.worker:
-            self.worker.publish(topic, payload)
+            success = self.worker.publish(topic, payload)
+            if success:
+                print(f"[MQTTManager] Envío exitoso → {topic}")
+                if topic == f"sb/data/{self.clientId}":
+                    self.firstMessage = False
+                return True
+            else:
+                print(f"[MQTTManager] Error al enviar mensaje a {topic}")
+                return False
+        return False
 
     # === Manejo de datos y cola ===
     def add_queue(self):
@@ -221,8 +245,33 @@ class MQTTManager(QObject):
         try:
             for data in list(self.queue):
                 topic = "sb/data/000001"
-                # payload = json.dumps(data)
-                # self.send_message(topic, payload)
+
+                data_to_send={
+                    "init": str(1 if self.firstMessage else 0),
+                    "ev":"0",
+                    "t":int(time.time()),
+                    "var":{
+                        "te":str(np.mean(data["temperature"]) if data["temperature"] else 0),
+                        "hu":str(np.mean(data["humidity"]) if data["humidity"] else 0),
+                        "bf":str(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0),
+                        "hf":str(np.mean(data["heartRate"]) if data["heartRate"] else 0),
+                        "no":"10",
+                        "pos":str(max(data["position"]) + 1),
+                        "pm":{
+                            "00":"0",
+                            "01":"0",
+                            "02":"0",
+                            "10":"0",
+                            "11":"0",
+                            "12":"0",
+                        },
+                        "sk": "1", # 1 Despierto 2 Ligero 3 Profundo 4 REM
+                        "iq":{}
+                    },
+
+                }
+                payload = json.dumps(data_to_send)
+                self.send_message(topic, payload)
                 print(f" → Enviado desde cola: {data['timestamp']}")
                 self.queue.remove(data)
 
@@ -231,3 +280,15 @@ class MQTTManager(QObject):
         except Exception as e:
             print(f"[Queue] Error al enviar cola: {e}")
 
+    # === Proceso de registro ===
+    def initMessage(self):
+        init_payload = {"s": self.clientId}
+        topic = f"sb/init/{self.clientId}"
+        payload = json.dumps(init_payload)
+        success = self.send_message(topic, payload)
+        if success:
+            print("[MQTTManager] Mensaje de inicialización enviado correctamente.")
+            self.inicializado = True
+        else:
+            print("[MQTTManager] Fallo al enviar mensaje de inicialización.")
+            self.inicializado = False
