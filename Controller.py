@@ -78,7 +78,7 @@ class Controlador:
         # Sonido
         # -----------------------------------------
 
-        self.audio = AudioRecorder(self.logger,self.model.getCurrentFolder(), duration=60,samplerate=44100, channels=1)
+        self.audio = AudioRecorder(self,self.logger,self.model.getCurrentFolder(), duration=60,samplerate=44100, channels=1)
         self.audio.start()
 
         # -----------------------------------------
@@ -215,6 +215,11 @@ class Controlador:
 
     def receivMqttData(self, data):
         self.mqtt.receivData(data)
+
+    
+    def receivAudioDB(self, db):
+        self.mqtt.receivAudioDB(db)
+
 if __name__ == "__main__":
     c = Controlador()
     c.run()

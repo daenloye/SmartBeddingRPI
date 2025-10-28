@@ -61,7 +61,7 @@ class MQTTWorker(QThread):
             self.log("on_connect", "Conectado correctamente.")
             self.connected.emit()
             client.subscribe(f"sb/response/{self.bedding_id}")
-            client.subscribe(f"sb/init/{self.bedding_id}")
+            #client.subscribe(f"sb/init/{self.bedding_id}")
         else:
             self.log("on_connect", f"Error al conectar. Código: {rc}", level=2)
 
@@ -118,6 +118,9 @@ class MQTTManager(QObject):
             "heartRateVariability": [],
             "position": [0, 0, 0]
         }
+
+        self.__dbLevel=10
+
         self.currentData = self.dataStructure.copy()
 
         os.makedirs("Backups", exist_ok=True)
@@ -278,7 +281,7 @@ class MQTTManager(QObject):
                         "hu": str(np.mean(data["humidity"]) if data["humidity"] else 0),
                         "bf": str(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0),
                         "hf": str(np.mean(data["heartRate"]) if data["heartRate"] else 0),
-                        "no": "10",
+                        "no": str(self.__dbLevel),
                         "pos": str(max(data["position"]) + 1),
                         "pm": {"00": "0", "01": "0", "02": "0", "10": "0", "11": "0", "12": "0"},
                         "sk": "1",
@@ -309,3 +312,10 @@ class MQTTManager(QObject):
     def setInitialized(self):
         self.inicializado = True
         self.log("setInitialized", "Llega la inicialización desde el broker.")
+
+
+    def receivAudioDB(self, db):
+        self.logger.log(app="MQTTManager", func="receivAudioDB", level=0,
+                        msg=f"DB de audio recibido → {db}")
+        
+        self.__dbLevel=db

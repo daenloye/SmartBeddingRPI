@@ -10,7 +10,7 @@ class AudioRecorder(QThread):
     new_file = pyqtSignal(str)   # se emite cada vez que se guarda un archivo
     error = pyqtSignal(str)      # se emite si ocurre un error
 
-    def __init__(self, logger,folder,duration=60, samplerate=44100, channels=1, parent=None):
+    def __init__(self, controlador, logger,folder,duration=60, samplerate=44100, channels=1, parent=None):
         super().__init__(parent)
         self.logger = logger
         self.folder = folder
@@ -18,6 +18,7 @@ class AudioRecorder(QThread):
         self.samplerate = samplerate
         self.channels = channels
         self._running = True     # control de parada externa
+        self.controlador=controlador
 
         self.numRecord=1
 
@@ -56,8 +57,16 @@ class AudioRecorder(QThread):
 
                 self.logger.log(app="AudioRecorder", func="start", level=0,msg=f"Se termina la grabacion de audio {datet2}")
 
-                # Pausa corta (opcional)
-                time.sleep(0.1)
+                rms = np.sqrt(np.mean(recording.astype(np.float32) ** 2))
+                
+                db = -20 * np.log10(rms / 32767)
+                self.logger.log(app="AudioRecorder", func="start", level=0,
+                                msg=f"Nivel promedio: {db:.2f} dBFS")
+                
+                self.controlador.receivAudioDB(db)
+
+                # # Pausa corta (opcional)
+                # time.sleep(0.1)
 
                 self.numRecord+=1
 
