@@ -190,7 +190,7 @@ class MQTTManager(QObject):
             if success:
                 self.logger.log(app="MQTTManager", func="send_message", level=0,
                                 msg=f"Envío exitoso → {topic}")
-                if topic == f"sb/data/{self.clientId}":
+                if topic == f"sb/record/{self.clientId}":
                     self.firstMessage = False
                 return True
             else:
@@ -234,34 +234,35 @@ class MQTTManager(QObject):
         today = datetime.now().strftime("%Y-%m-%d")
         backup_base = "Backups"
 
-        # --- Procesar backups ---
-        if os.path.exists(backup_base):
+        # --- Procesar backups pendientes (solo si ya está inicializado) ---
+        if self.inicializado and os.path.exists(backup_base):
             today_folders = sorted(
                 [os.path.join(backup_base, d)
-                 for d in os.listdir(backup_base)
-                 if d.startswith(today) and os.path.isdir(os.path.join(backup_base, d))]
+                for d in os.listdir(backup_base)
+                if d.startswith(today) and os.path.isdir(os.path.join(backup_base, d))]
             )
             for folder in today_folders:
                 json_files = sorted([f for f in os.listdir(folder) if f.endswith(".json")])
                 if not json_files:
                     continue
-                self.log("processQueue", f"Procesando backup de hoy: {folder} ({len(json_files)} archivos)")
+                self.log("processQueue", f"Procesando backups pendientes ({len(json_files)} archivos) en {folder}")
                 for file in json_files:
                     file_path = os.path.join(folder, file)
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                        topic = "sb/data/000001"
-                        # payload = json.dumps(data)
-                        # self.send_message(topic, payload)
-                        self.log("processQueue", f" → Enviado desde backup: {file_path}")
+                            data_to_send = json.load(f)
+
+                        topic = f"sb/record/{self.clientId}"
+                        payload = json.dumps(data_to_send)
+                        self.send_message(topic, payload)
+                        self.log("processQueue", f" → Backup reenviado y eliminado: {file_path}")
                         os.remove(file_path)
                     except Exception as e:
-                        self.log("processQueue", f"Error al procesar {file_path}", level=2, error=e)
+                        self.log("processQueue", f"Error al reenviar backup {file_path}", level=2, error=e)
                         break
                 if not os.listdir(folder):
                     os.rmdir(folder)
-                    self.log("processQueue", f"Carpeta vacía eliminada: {folder}")
+                    self.log("processQueue", f"Carpeta de backup vacía eliminada: {folder}")
 
         # --- Procesar cola ---
         if not self.queue:
@@ -289,6 +290,16 @@ class MQTTManager(QObject):
                     },
                 }
                 payload = json.dumps(data_to_send)
+
+                # --- Si no está inicializado, guarda backup y espera ---
+                if not self.inicializado:
+                    self.log("processQueue", "No inicializado → guardando backup y enviando initMessage...", level=1)
+                    self.createBackup(data_to_send)
+                    self.initMessage()
+                    time.sleep(2)
+                    continue  # no se envía nada aún
+
+                # --- Envío normal ---
                 self.send_message(topic, payload)
                 self.log("processQueue", f" → Enviado desde cola: {data['timestamp']}")
                 self.queue.remove(data)
