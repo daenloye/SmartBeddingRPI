@@ -349,7 +349,8 @@ class RecordWorker(QObject):
             # Reporte MQTT
             # ------------------------------------------
 
-            if posIndex!=-1:
+            # if posIndex!=-1:
+            if True:
 
                 #        self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
 
@@ -375,8 +376,11 @@ class RecordWorker(QObject):
                         }
                     } 
                 }
+
+                self.logger.log(app="Modelo", func="RecordWorker", level=0,
+                msg=f"Data enviada a MQTTManager")
                 
-                self.controlador.send_to_mqtt(MQTT_Report)
+                self.controlador.receivMqttData(MQTT_Report)
 
 
             # Log de fin

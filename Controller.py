@@ -192,6 +192,9 @@ class Controlador:
                         msg=f"🕒 Reloj del sistema ajustado a {new_time} (Unix time)"
                     )
 
+                #Envio la inicialización
+                self.mqtt.setInitialized()
+
             except Exception as e:
                 self.logger.log(
                     app="Controller",
@@ -206,6 +209,12 @@ class Controlador:
             side = data["side"]
             self.model.setSide(side)
 
+            #Envio la inicialización
+            self.mqtt.setInitialized()
+
+
+    def receivMqttData(self, data):
+        self.mqtt.receivData(data)
 if __name__ == "__main__":
     c = Controlador()
     c.run()

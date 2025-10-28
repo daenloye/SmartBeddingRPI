@@ -61,7 +61,7 @@ class MQTTWorker(QThread):
             self.log("on_connect", "Conectado correctamente.")
             self.connected.emit()
             client.subscribe(f"sb/response/{self.bedding_id}")
-            #client.subscribe(f"sb/init/{self.bedding_id}")
+            client.subscribe(f"sb/init/{self.bedding_id}")
         else:
             self.log("on_connect", f"Error al conectar. Código: {rc}", level=2)
 
@@ -202,16 +202,25 @@ class MQTTManager(QObject):
 
     def add_queue(self):
         self.queue.append(self.currentData.copy())
+
+        self.logger.log(app="MQTTManager", func="add_queue", level=0,
+                        msg=f"Se añadió data a la cola {self.currentData.copy()}. Tamaño actual de la cola: {len(self.queue)}")
+        
         self.currentData = self.dataStructure.copy()
 
     def receivData(self, data):
+
+        self.logger.log(app="MQTTManager", func="receivData", level=0,
+                        msg=f"Data recibida → {data}")
+
         self.currentData["temperature"].append(data["temperature"])
         self.currentData["humidity"].append(data["humidity"])
         self.currentData["respiratoryRate"].append(data["respiratoryRate"])
         self.currentData["heartRate"].append(data["heartRate"])
         self.currentData["heartRateVariability"].append(data["heartRateVariability"])
         self.currentData["position"][data["position"]["final"]["index"]] += 1
-        if len(self.currentData["temperature"]) >= 5:
+        
+        if len(self.currentData["temperature"]) >= 1:
             self.add_queue()
 
     def processQueue(self):
@@ -259,7 +268,7 @@ class MQTTManager(QObject):
         self.log("processQueue", f"Procesando {len(self.queue)} mensajes en cola...")
         try:
             for data in list(self.queue):
-                topic = f"sb/data/{self.clientId}"
+                topic = f"sb/record/{self.clientId}"
                 data_to_send = {
                     "init": str(1 if self.firstMessage else 0),
                     "ev": "0",
@@ -292,7 +301,11 @@ class MQTTManager(QObject):
         success = self.send_message(topic, payload)
         if success:
             self.log("initMessage", "Mensaje de inicialización enviado correctamente.")
-            self.inicializado = True
+            #self.inicializado = True
         else:
             self.log("initMessage", "Fallo al enviar mensaje de inicialización.", level=2)
             self.inicializado = False
+
+    def setInitialized(self):
+        self.inicializado = True
+        self.log("setInitialized", "Llega la inicialización desde el broker.")
