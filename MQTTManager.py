@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 import paho.mqtt.client as mqtt
 import time
 import os
@@ -6,25 +6,37 @@ from datetime import datetime
 import json
 import numpy as np
 
+
 class MQTTWorker(QThread):
-    message_received = pyqtSignal(str, str)  # topic, payload
+    message_received = pyqtSignal(str, str)
     connected = pyqtSignal()
     disconnected = pyqtSignal()
 
-    def __init__(self, server, port, client_id, password, bedding_id):
+    def __init__(self, server, port, client_id, password, bedding_id, conn_type, logger=None):
         super().__init__()
         self.server = server
         self.port = port
         self.client_id = client_id
         self.password = password
         self.bedding_id = bedding_id
+        self.logger = logger
         self._running = True
         self._client = None
+        self.__conn_type=conn_type
+
+    def log(self, func, msg, level=0, error=None):
+        """Helper interno para usar el logger si existe"""
+        if self.logger:
+            self.logger.log(app="MQTTWorker", func=func, level=level, msg=msg, error=error)
+        else:
+            print(f"[MQTTWorker] {msg}")
 
     def run(self):
-        """Hilo principal del worker MQTT"""
-        self._client = mqtt.Client(client_id=self.client_id)
-        self._client.username_pw_set(self.client_id, self.password)
+        self._client = mqtt.Client(client_id=f"sb_{self.bedding_id}")
+
+        if(self.__conn_type=="prod"):
+            self._client.username_pw_set(self.client_id, self.password)
+
         self._client.on_connect = self.on_connect
         self._client.on_message = self.on_message
         self._client.on_disconnect = self.on_disconnect
@@ -34,24 +46,24 @@ class MQTTWorker(QThread):
                 self._client.connect(self.server, self.port, keepalive=60)
                 self._client.loop_forever()
             except Exception as e:
-                print(f"[MQTT] Error de conexión: {e}")
-                time.sleep(5)  # Reintento automático
+                self.log("run", f"Error de conexión: {e}", level=2, error=e)
+                time.sleep(5)
 
     def stop(self):
-        """Detiene el hilo MQTT"""
         self._running = False
         if self._client:
             self._client.disconnect()
             self._client.loop_stop()
+        self.log("stop", "Hilo detenido correctamente.")
 
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
-            print("[MQTT] Conectado correctamente.")
+            self.log("on_connect", "Conectado correctamente.")
             self.connected.emit()
             client.subscribe(f"sb/response/{self.bedding_id}")
-            client.subscribe(f"sb/init/{self.bedding_id}")
+            #client.subscribe(f"sb/init/{self.bedding_id}")
         else:
-            print(f"[MQTT] Error al conectar. Código: {rc}")
+            self.log("on_connect", f"Error al conectar. Código: {rc}", level=2)
 
     def on_message(self, client, userdata, msg):
         topic = msg.topic
@@ -59,21 +71,20 @@ class MQTTWorker(QThread):
         self.message_received.emit(topic, payload)
 
     def on_disconnect(self, client, userdata, rc):
-        print("[MQTT] Desconectado.")
+        self.log("on_disconnect", "Desconectado.")
         self.disconnected.emit()
 
     def publish(self, topic, payload):
-        """Publica un mensaje en un topic y confirma si se envió."""
         if self._client and self._client.is_connected():
             result = self._client.publish(topic, payload)
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                print(f"[MQTT] Mensaje publicado correctamente en {topic}")
+                self.log("publish", f"Mensaje publicado correctamente en {topic}")
                 return True
             else:
-                print(f"[MQTT] Fallo al publicar en {topic}, código: {result.rc}")
+                self.log("publish", f"Fallo al publicar en {topic}, código: {result.rc}", level=2)
                 return False
         else:
-            print("[MQTT] No conectado. No se puede publicar.")
+            self.log("publish", "No conectado. No se puede publicar.", level=2)
             return False
 
 
@@ -82,25 +93,22 @@ class MQTTManager(QObject):
     connected = pyqtSignal()
     disconnected = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, logger=None):
         super().__init__()
+        self.logger = logger
         self.worker = None
-
         self.queue = []
         self.connection = False
 
-        # === Timer cada 30 segundos ===
         self.timer = QTimer()
         self.timer.timeout.connect(self.processQueue)
-        self.timer.start(30_000)  # 30 segundos
+        self.timer.start(30_000)
 
-        #Initialized data structure
-        self.inicializado=False
-        self.clientId="000001"
-        self.initTime=int(time.time())
-        self.firstMessage=True
+        self.inicializado = False
+        self.clientId = "000001"
+        self.initTime = int(time.time())
+        self.firstMessage = True
 
-        # Estructura base
         self.dataStructure = {
             "timestamp": 0,
             "temperature": [],
@@ -110,65 +118,88 @@ class MQTTManager(QObject):
             "heartRateVariability": [],
             "position": [0, 0, 0]
         }
-
         self.currentData = self.dataStructure.copy()
 
-        # === Backup si no hay conexión ===
         os.makedirs("Backups", exist_ok=True)
         today = datetime.now().strftime("%Y-%m-%d")
         existing = [d for d in os.listdir("Backups") if d.startswith(today)]
         backup_name = f"{today}_{len(existing)+1}"
         self.backup_path = os.path.join("Backups", backup_name)
 
+    def log(self, func, msg, level=0, error=None):
+        if self.logger:
+            self.logger.log(app="MQTTManager", func=func, level=level, msg=msg, error=error)
+        else:
+            print(f"[MQTTManager] {msg}")
+
     def start(self):
-        """Inicia el worker MQTT"""
-        server = "3.90.24.183"
-        port = 8807
-        client_id = "smartbedding_publisher"
-        password = "Sb998?-Tx"
-        bedding_id=self.clientId
 
-        self.worker = MQTTWorker(server, port, client_id, password, bedding_id)
+        conn_type = "test" # test|prod
 
-        # Conecta señales del worker
+        if conn_type == "test":
+            server = "192.168.0.109"
+            port = 1883
+            client_id = ""
+            password = ""
+        
+        else:
+            server = "3.90.24.183"
+            port = 8807
+            client_id = "smartbedding_publisher"
+            password = "Sb998?-Tx"
+        bedding_id = self.clientId
+
+        self.worker = MQTTWorker(server, port, client_id, password, bedding_id, conn_type, logger=self.logger)
         self.worker.message_received.connect(self.message_received)
         self.worker.connected.connect(self.on_connected)
         self.worker.disconnected.connect(self.on_disconnected)
-
         self.worker.start()
-        print("[MQTTManager] Worker iniciado.")
+        self.log("start", "Worker MQTT iniciado.")
 
     def stop(self):
-        """Detiene el worker MQTT"""
         if self.worker:
             self.worker.stop()
             self.worker.wait()
-            print("[MQTTManager] Worker detenido.")
+            self.log("stop", "Worker MQTT detenido.")
 
-    # === Actualización de estado de conexión ===
     def on_connected(self):
         self.connection = True
-        print("[MQTTManager] Conectado al broker.")
+        self.connected.emit()
+        self.log("on_connected", "Conectado al broker.")
+
+        if  not self.inicializado:
+            self.initMessage()
 
     def on_disconnected(self):
         self.connection = False
-        print("[MQTTManager] Desconectado del broker.")
+        self.disconnected.emit()
+        self.log("on_disconnected", "Desconectado del broker.", level=1)
 
-    # === Envío MQTT ===
     def send_message(self, topic, payload):
-        if self.worker:
+        """Publica un mensaje en MQTT con manejo de logs y errores."""
+        if not self.worker:
+            self.logger.log(app="MQTTManager", func="send_message", level=2,
+                            msg="No hay worker activo. No se puede enviar mensaje.")
+            return False
+
+        try:
             success = self.worker.publish(topic, payload)
             if success:
-                print(f"[MQTTManager] Envío exitoso → {topic}")
+                self.logger.log(app="MQTTManager", func="send_message", level=0,
+                                msg=f"Envío exitoso → {topic}")
                 if topic == f"sb/data/{self.clientId}":
                     self.firstMessage = False
                 return True
             else:
-                print(f"[MQTTManager] Error al enviar mensaje a {topic}")
+                self.logger.log(app="MQTTManager", func="send_message", level=2,
+                                msg=f"Error al enviar mensaje a {topic}")
                 return False
-        return False
+        except Exception as e:
+            self.logger.log(app="MQTTManager", func="send_message", level=3,
+                            msg=f"Excepción al publicar en {topic}", error=e)
+            return False
 
-    # === Manejo de datos y cola ===
+
     def add_queue(self):
         self.queue.append(self.currentData.copy())
         self.currentData = self.dataStructure.copy()
@@ -180,115 +211,88 @@ class MQTTManager(QObject):
         self.currentData["heartRate"].append(data["heartRate"])
         self.currentData["heartRateVariability"].append(data["heartRateVariability"])
         self.currentData["position"][data["position"]["final"]["index"]] += 1
-
         if len(self.currentData["temperature"]) >= 5:
             self.add_queue()
 
-    # === Procesamiento periódico ===
     def processQueue(self):
-        from datetime import datetime
-
-        # Si no hay conexión, no hacemos nada
         if not self.connection:
-            print("[Queue] Sin conexión, no se procesa nada.")
+            self.log("processQueue", "Sin conexión, no se procesa nada.", level=1)
             return
 
         today = datetime.now().strftime("%Y-%m-%d")
         backup_base = "Backups"
 
-        # === 1️⃣ Procesar backups del día de hoy ===
+        # --- Procesar backups ---
         if os.path.exists(backup_base):
             today_folders = sorted(
                 [os.path.join(backup_base, d)
-                for d in os.listdir(backup_base)
-                if d.startswith(today) and os.path.isdir(os.path.join(backup_base, d))]
+                 for d in os.listdir(backup_base)
+                 if d.startswith(today) and os.path.isdir(os.path.join(backup_base, d))]
             )
-
             for folder in today_folders:
                 json_files = sorted([f for f in os.listdir(folder) if f.endswith(".json")])
                 if not json_files:
                     continue
-
-                print(f"[Queue] Procesando backup de hoy: {folder} ({len(json_files)} archivos)")
-
+                self.log("processQueue", f"Procesando backup de hoy: {folder} ({len(json_files)} archivos)")
                 for file in json_files:
                     file_path = os.path.join(folder, file)
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
                             data = json.load(f)
-
-                        # === Simulación de envío (aquí iría el publish real) ===
                         topic = "sb/data/000001"
                         # payload = json.dumps(data)
                         # self.send_message(topic, payload)
-                        print(f" → Enviado desde backup: {file_path}")
-
-                        # Si se envió correctamente, eliminar el archivo
+                        self.log("processQueue", f" → Enviado desde backup: {file_path}")
                         os.remove(file_path)
-
                     except Exception as e:
-                        print(f"[Backup] Error al procesar {file_path}: {e}")
-                        break  # Detenemos si hay fallo en envío para no perder datos
-
-                # Si la carpeta quedó vacía, la eliminamos
+                        self.log("processQueue", f"Error al procesar {file_path}", level=2, error=e)
+                        break
                 if not os.listdir(folder):
                     os.rmdir(folder)
-                    print(f"[Backup] Carpeta vacía eliminada: {folder}")
+                    self.log("processQueue", f"Carpeta vacía eliminada: {folder}")
 
-        # === 2️⃣ Procesar cola en memoria ===
-        if len(self.queue) == 0:
-            print("[Queue] No hay mensajes en cola para procesar.")
+        # --- Procesar cola ---
+        if not self.queue:
+            self.log("processQueue", "No hay mensajes en cola para procesar.")
             return
 
-        print(f"[Queue] Procesando {len(self.queue)} mensajes en cola...")
-
+        self.log("processQueue", f"Procesando {len(self.queue)} mensajes en cola...")
         try:
             for data in list(self.queue):
-                topic = "sb/data/000001"
-
-                data_to_send={
+                topic = f"sb/data/{self.clientId}"
+                data_to_send = {
                     "init": str(1 if self.firstMessage else 0),
-                    "ev":"0",
-                    "t":int(time.time()),
-                    "var":{
-                        "te":str(np.mean(data["temperature"]) if data["temperature"] else 0),
-                        "hu":str(np.mean(data["humidity"]) if data["humidity"] else 0),
-                        "bf":str(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0),
-                        "hf":str(np.mean(data["heartRate"]) if data["heartRate"] else 0),
-                        "no":"10",
-                        "pos":str(max(data["position"]) + 1),
-                        "pm":{
-                            "00":"0",
-                            "01":"0",
-                            "02":"0",
-                            "10":"0",
-                            "11":"0",
-                            "12":"0",
-                        },
-                        "sk": "1", # 1 Despierto 2 Ligero 3 Profundo 4 REM
-                        "iq":{}
+                    "ev": "0",
+                    "t": int(time.time()),
+                    "var": {
+                        "te": str(np.mean(data["temperature"]) if data["temperature"] else 0),
+                        "hu": str(np.mean(data["humidity"]) if data["humidity"] else 0),
+                        "bf": str(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0),
+                        "hf": str(np.mean(data["heartRate"]) if data["heartRate"] else 0),
+                        "no": "10",
+                        "pos": str(max(data["position"]) + 1),
+                        "pm": {"00": "0", "01": "0", "02": "0", "10": "0", "11": "0", "12": "0"},
+                        "sk": "1",
+                        "iq": {}
                     },
-
                 }
                 payload = json.dumps(data_to_send)
                 self.send_message(topic, payload)
-                print(f" → Enviado desde cola: {data['timestamp']}")
+                self.log("processQueue", f" → Enviado desde cola: {data['timestamp']}")
                 self.queue.remove(data)
 
-            print(f"[Queue] Todos los mensajes de la cola enviados correctamente.")
-
+            self.log("processQueue", "Todos los mensajes de la cola enviados correctamente.")
         except Exception as e:
-            print(f"[Queue] Error al enviar cola: {e}")
+            self.log("processQueue", f"Error al enviar cola", level=2, error=e)
 
-    # === Proceso de registro ===
     def initMessage(self):
         init_payload = {"s": self.clientId}
         topic = f"sb/init/{self.clientId}"
         payload = json.dumps(init_payload)
         success = self.send_message(topic, payload)
         if success:
-            print("[MQTTManager] Mensaje de inicialización enviado correctamente.")
+            self.log("initMessage", "Mensaje de inicialización enviado correctamente.")
             self.inicializado = True
         else:
-            print("[MQTTManager] Fallo al enviar mensaje de inicialización.")
+            self.log("initMessage", "Fallo al enviar mensaje de inicialización.", level=2)
             self.inicializado = False

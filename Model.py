@@ -356,8 +356,8 @@ class RecordWorker(QObject):
                 MQTT_Report={
                     "initTimestamp": self.record.initTimestamp,
                     "finishTimestamp": self.record.finishTimestamp,
-                    "temperature":np.mean([d["temperature"] for d in self.environmentData]),
-                    "humidity":np.mean([d["humidity"] for d in self.environmentData]),
+                    "temperature":np.mean([d["temperature"] for d in self.record.environmentData]),
+                    "humidity":np.mean([d["humidity"] for d in self.record.environmentData]),
                     "respiratoryRate": RRS_freq,
                     "heartRate": HR,
                     "heartRateVariability":HRV,
@@ -438,6 +438,8 @@ class Model(QObject):
         #Variable de thread
         self.thread = []
 
+        self.side ="R" # Lado por defecto
+
     #-----------------------------------------
     # Método para inicializar el almacenamiento
     #-----------------------------------------
@@ -492,7 +494,7 @@ class Model(QObject):
 
         # Lanza el procesamiento en segundo plano
         thread = QThread()
-        worker = RecordWorker(self.controlador, self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles)
+        worker = RecordWorker(self.controlador, self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles,self.side)
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
@@ -526,4 +528,23 @@ class Model(QObject):
 
     def getCurrentFolder(self):
         return self.currentFolder
+    
+    def setSide(self,side):
+        if side=="r":
+            self.side="R"
+
+            self.logger.log(app="Model", func="setSide", level=0,
+                            msg=f"Lado configurado a R")
+
+        elif side=="l":
+            self.side="L"
+
+            self.logger.log(app="Model", func="setSide", level=0,
+                            msg=f"Lado configurado a L")
+
+        else:
+            self.side="R"
+
+            self.logger.log(app="Model", func="setSide", level=1,
+                            msg=f"Lado configurado por defecto a R, ingreso {side} no válido")
 

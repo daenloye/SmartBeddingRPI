@@ -6,6 +6,8 @@ import signal
 
 from PyQt5.QtCore import QCoreApplication
 from qasync import QEventLoop
+import json
+import time
 
 from LoggerManager import Logger
 from EnvironmentAdquisition import EnvironmentManager
@@ -14,6 +16,7 @@ from AccelerationAdquisition import AccelerationReader
 from Model import Model
 from MQTTManager import MQTTManager
 from AudioRecorder import AudioRecorder
+import subprocess
 
 class Controlador:
     def __init__(self):
@@ -49,8 +52,9 @@ class Controlador:
         # Reporte de datos
         # -----------------------------------------
 
-        self.mqtt=MQTTManager()
+        self.mqtt = MQTTManager(logger=self.logger)
         self.mqtt.message_received.connect(self.on_msg_mqtt)
+        self.mqtt.start()
 
         # -----------------------------------------
         # Ambiente
@@ -153,11 +157,54 @@ class Controlador:
     # -----------------------------------------
 
 
-    def on_msg_mqtt(self,topic, payload):
-        print(f"[Mensaje] {topic}: {payload}")
+    def on_msg_mqtt(self, topic, payload):
+        self.logger.log(app="Controller", func="on_msg_mqtt", level=0,
+                        msg=f"Mensaje recibido - {topic}: {payload}")
+        try:
+            data = json.loads(payload)
+        except Exception as e:
+            self.logger.log(app="Controller", func="on_msg_mqtt", level=2,
+                            msg="Error parseando JSON", error=e)
+            return
 
-    def send_to_mqtt(self,data):
-        self.mqtt.se
+        #Analizo si llega error o no
+        if data.get("error", None) is not None:
+            self.logger.log(app="Controller", func="on_msg_mqtt", level=2,
+                            msg=f"Error recibido desde el cliente: {data['error']}")
+            return
+        
+        # Si lleg el time
+        if data.get("t") is not None:
+            try:
+                new_time = int(data["t"])  # asegurar tipo entero
+                if new_time <= 0:
+                    raise ValueError("timestamp inválido o negativo")
+                
+
+                if False:
+                    # Ajustar el reloj del sistema (requiere permisos sudo para date)
+                    subprocess.run(["sudo", "date", "-s", f"@{new_time}"], check=True)
+
+                    self.logger.log(
+                        app="Controller",
+                        func="on_msg_mqtt",
+                        level=0,
+                        msg=f"🕒 Reloj del sistema ajustado a {new_time} (Unix time)"
+                    )
+
+            except Exception as e:
+                self.logger.log(
+                    app="Controller",
+                    func="on_msg_mqtt",
+                    level=2,
+                    msg="Error ajustando el reloj del sistema",
+                    error=e
+                )
+        
+        #Si llega el side
+        if data.get("side", None) is not None:
+            side = data["side"]
+            self.model.setSide(side)
 
 if __name__ == "__main__":
     c = Controlador()
