@@ -32,7 +32,7 @@ class MQTTWorker(QThread):
             print(f"[MQTTWorker] {msg}")
 
     def run(self):
-        self._client = mqtt.Client(client_id=f"sb_{self.bedding_id}")
+        self._client = mqtt.Client(client_id=f"{self.bedding_id}")
 
         if(self.__conn_type=="prod"):
             self._client.username_pw_set(self.client_id, self.password)
@@ -137,7 +137,7 @@ class MQTTManager(QObject):
 
     def start(self):
 
-        conn_type = "test" # test|prod
+        conn_type = "prod" # test|prod
 
         if conn_type == "test":
             server = "192.168.0.109"
@@ -274,10 +274,11 @@ class MQTTManager(QObject):
             for data in list(self.queue):
                 topic = f"sb/record/{self.clientId}"
                 data_to_send = {
+                    "s": self.clientId,
                     "init": str(1 if self.firstMessage else 0),
                     "ev": "0",
                     "t": int(time.time()),
-                    "var": {
+                    "data": {
                         "te": str(np.mean(data["temperature"]) if data["temperature"] else 0),
                         "hu": str(np.mean(data["humidity"]) if data["humidity"] else 0),
                         "bf": str(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0),
@@ -330,3 +331,19 @@ class MQTTManager(QObject):
                         msg=f"DB de audio recibido → {db}")
         
         self.__dbLevel=db
+
+    def createBackup(self, data):
+        """Guarda un respaldo del mensaje en un archivo JSON dentro de Backups/"""
+        try:
+            os.makedirs(self.backup_path, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%H-%M-%S_%f")
+            file_path = os.path.join(self.backup_path, f"{timestamp}.json")
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+            self.log("createBackup", f"Backup creado: {file_path}")
+        except Exception as e:
+            self.log("createBackup", "Error al crear backup", level=2, error=e)
+
