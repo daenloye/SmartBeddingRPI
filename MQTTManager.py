@@ -275,21 +275,29 @@ class MQTTManager(QObject):
                 topic = f"sb/record/{self.clientId}"
                 data_to_send = {
                     "s": self.clientId,
-                    "init": str(1 if self.firstMessage else 0),
+                    "init": "1" if not self.firstMessage else "0",
                     "ev": "0",
-                    "t": int(time.time()),
-                    "data": {
-                        "te": str(int(np.mean(data["temperature"]) if data["temperature"] else 0)),
-                        "hu": str(int(np.mean(data["humidity"]) if data["humidity"] else 0)),
-                        "hf": str(int(np.mean(data["heartRate"]) if data["heartRate"] else 0)),
-                        "bf": str(int(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0)),
-                        "no": str(int(self.__dbLevel)),
+                    "t": str(int(time.time())),
+                    "var": {
+                        "te": f"{np.mean(data['temperature']):.2f}" if data["temperature"] else "0",
+                        "hu": f"{np.mean(data['humidity']):.2f}" if data["humidity"] else "0",
+                        "hf": f"{np.mean(data['heartRate']):.2f}" if data["heartRate"] else "0",
+                        "bf": f"{np.mean(data['respiratoryRate']):.2f}" if data["respiratoryRate"] else "0",
+                        "no": f"{self.__dbLevel:.2f}",  # Nivel de ruido
                         "ps": str(max(data["position"]) + 1),
-                        "pm": {"00": "0", "01": "0", "02": "0", "10": "0", "11": "0", "12": "0"},
-                        "sk": "1",
+                        "pm": {
+                            "00": "0",
+                            "01": "0",
+                            "02": "0",
+                            "10": "0",
+                            "11": "0",
+                            "12": "0",
+                        },
+                        "sk": "2",  # Estado del sueño
                         "iq": {}
-                    },
+                    }
                 }
+
                 payload = json.dumps(data_to_send)
 
                 # --- Si no está inicializado, guarda backup y espera ---
