@@ -189,7 +189,7 @@ class MQTTManager(QObject):
             success = self.worker.publish(topic, payload)
             if success:
                 self.logger.log(app="MQTTManager", func="send_message", level=0,
-                                msg=f"Envío exitoso → {topic}")
+                                msg=f"Envío exitoso → {topic} : {payload}")
                 if topic == f"sb/record/{self.clientId}":
                     self.firstMessage = False
                 return True
@@ -207,14 +207,14 @@ class MQTTManager(QObject):
         self.queue.append(self.currentData.copy())
 
         self.logger.log(app="MQTTManager", func="add_queue", level=0,
-                        msg=f"Se añadió data a la cola {self.currentData.copy()}. Tamaño actual de la cola: {len(self.queue)}")
+                        msg=f"Se añadió data a la cola. Tamaño actual de la cola: {len(self.queue)}")
         
         self.currentData = self.dataStructure.copy()
 
     def receivData(self, data):
 
         self.logger.log(app="MQTTManager", func="receivData", level=0,
-                        msg=f"Data recibida → {data}")
+                        msg=f"Data recibida en MQTTManager")
 
         self.currentData["temperature"].append(data["temperature"])
         self.currentData["humidity"].append(data["humidity"])
@@ -279,12 +279,12 @@ class MQTTManager(QObject):
                     "ev": "0",
                     "t": int(time.time()),
                     "data": {
-                        "te": str(np.mean(data["temperature"]) if data["temperature"] else 0),
-                        "hu": str(np.mean(data["humidity"]) if data["humidity"] else 0),
-                        "bf": str(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0),
-                        "hf": str(np.mean(data["heartRate"]) if data["heartRate"] else 0),
-                        "no": str(self.__dbLevel),
-                        "pos": str(max(data["position"]) + 1),
+                        "te": str(int(np.mean(data["temperature"]) if data["temperature"] else 0)),
+                        "hu": str(int(np.mean(data["humidity"]) if data["humidity"] else 0)),
+                        "hf": str(int(np.mean(data["heartRate"]) if data["heartRate"] else 0)),
+                        "bf": str(int(np.mean(data["respiratoryRate"]) if data["respiratoryRate"] else 0)),
+                        "no": str(int(self.__dbLevel)),
+                        "ps": str(max(data["position"]) + 1),
                         "pm": {"00": "0", "01": "0", "02": "0", "10": "0", "11": "0", "12": "0"},
                         "sk": "1",
                         "iq": {}

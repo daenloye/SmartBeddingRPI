@@ -172,7 +172,10 @@ class Controlador:
             self.logger.log(app="Controller", func="on_msg_mqtt", level=2,
                             msg=f"Error recibido desde el cliente: {data['error']}")
             return
-        
+        else:
+            self.logger.log(app="Controller", func="on_msg_mqtt", level=0,
+                            msg=f"Se recibe mensaje corretamente sin errores")
+            
         # Si lleg el time
         if data.get("t") is not None:
             try:
