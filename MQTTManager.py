@@ -275,7 +275,7 @@ class MQTTManager(QObject):
                 topic = f"sb/record/{self.clientId}"
                 data_to_send = {
                     "s": self.clientId,
-                    "init": "1" if not self.firstMessage else "0",
+                    "init": "1" if self.firstMessage else "0",
                     "ev": "0",
                     "t": str(int(time.time())),
                     "var": {
