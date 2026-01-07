@@ -89,7 +89,7 @@ class AccelerationWorker(QObject):
                 if now > next_time + self.interval:
                     next_time = now + self.interval
             else:
-                time.sleep(0.001)  # evita 100% CPU
+                time.sleep(0.005)  # evita 100% CPU
 
         self.spi.close()
 

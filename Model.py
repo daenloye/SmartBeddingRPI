@@ -406,6 +406,8 @@ class MinuteRecord:
         self.initTimestamp=0
         self.finishTimestamp=0
 
+        self.duration = 60  # duración deseada en segundos
+
     def storePressure(self, timestamp, pressure):
         self.pressureData.append({'timestamp': timestamp, 'measure': pressure})
 
@@ -415,8 +417,12 @@ class MinuteRecord:
     def storeEnvironment(self, timestamp, temperature, humidity):
         self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
 
-    def checkFull(self):
-        return len(self.pressureData) >= 60 and len(self.acelerationData) >= 60*20
+    def checkFull(self, currentTimestamp):
+        # return len(self.pressureData) >= 60 and len(self.acelerationData) >= 60*20
+        """Devuelve True si ya pasó 1 minuto desde el inicio del registro"""
+        if self.initTimestamp == 0:
+            return False
+        return (currentTimestamp - self.initTimestamp) >= self.duration
 
 #------------------------------------------------------
 # Clase: Gestiona lo relacionado con el manejo de la información
@@ -478,7 +484,7 @@ class Model(QObject):
         self.currentRecord.storePressure(timestamp, pressure)
 
         #Analizo si debo continuar con el registro actual o guardar y crear uno nuevo
-        if self.currentRecord.checkFull():
+        if self.currentRecord.checkFull(timestamp):
             self.startNextRecord(timestamp)
 
     def storeAcceleration(self, timestamp, acceleration):
@@ -489,7 +495,7 @@ class Model(QObject):
         self.currentRecord.storeAcceleration(timestamp, acceleration)
 
         #Analizo si debo continuar con el registro actual o guardar y crear uno nuevo
-        if self.currentRecord.checkFull():
+        if self.currentRecord.checkFull(timestamp):
             self.startNextRecord(timestamp)
 
     def startNextRecord(self, timestamp):
