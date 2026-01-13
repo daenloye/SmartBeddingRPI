@@ -1,0 +1,2 @@
+rsync -avz /home/desarrollo-robbo/Documentos/PruebaEnC/ gibic@192.168.0.100:/home/gibic/PruebaEnC/
+
