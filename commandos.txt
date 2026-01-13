@@ -1,2 +1,17 @@
 rsync -avz /home/desarrollo-robbo/Documentos/PruebaEnC/ gibic@192.168.0.100:/home/gibic/PruebaEnC/
 
+rsync -avz \
+  --exclude='.git/' \
+  --exclude='__pycache__/' \
+  --exclude='*.vscode' \
+  /home/desarrollo-robbo/Documentos/PruebaEnC/ \
+  gibic@192.168.0.100:/home/gibic/PruebaEnC/
+
+rsync -avz \
+  --exclude='.venv/' \
+  --exclude='__pycache__/' \
+  --exclude='*.pyc' \
+  gibic@192.168.0.100:/home/gibic/PruebaEnC/ \
+  /home/desarrollo-robbo/Documentos/PruebaEnC/
+
+

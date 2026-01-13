@@ -5,6 +5,7 @@ import os
 import json
 from scipy.signal import lfilter, filtfilt, detrend, find_peaks
 import psutil
+from datetime import datetime
 
 from PositionModel import procesarMuestra
 
@@ -42,10 +43,10 @@ a_crs = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.0
 class RecordWorker(QObject):
     finished = pyqtSignal()
 
-    def __init__(self, controlador, record, folder, id, logger,debug,position="R"):
+    def __init__(self, controlador, record_list, folder, id, logger,debug,position="R"):
         super().__init__()
         self.controlador=controlador
-        self.record:MinuteRecord = record
+        self.record:MinuteRecord = record_list.pop(0)
         self.logger = logger
         self.id=id
         self.folder = folder
@@ -418,11 +419,18 @@ class MinuteRecord:
         self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
 
     def checkFull(self, currentTimestamp):
-        # return len(self.pressureData) >= 60 and len(self.acelerationData) >= 60*20
         """Devuelve True si ya pasó 1 minuto desde el inicio del registro"""
         if self.initTimestamp == 0:
             return False
-        return (currentTimestamp - self.initTimestamp) >= self.duration
+
+        fmt = "%H:%M:%S.%f"
+
+        current = datetime.strptime(currentTimestamp, fmt)
+        init = datetime.strptime(self.initTimestamp, fmt)
+
+        elapsed = (current - init).total_seconds()
+
+        return elapsed >= self.duration
 
 #------------------------------------------------------
 # Clase: Gestiona lo relacionado con el manejo de la información
@@ -438,7 +446,7 @@ class Model(QObject):
         self.debugFiles=degugFiles
 
         self.currentRecord = None  # Variable que almacena el registro actual
-        self.lastRecord = None     # Variable que almacena el último registro guardado
+        self.lastRecord = []     # Variable que almacena el último registro guardado
 
         # Inicializo los archivos
         self.idCurrentRecord = 1
@@ -500,11 +508,11 @@ class Model(QObject):
 
     def startNextRecord(self, timestamp):
         self.currentRecord.finishTimestamp = timestamp #Almacena el cierre del archivo
-        # self.lastRecord = self.currentRecord #Lo pasa a lastRecord
+        self.lastRecord.append(self.currentRecord) #Lo pasa a lastRecord
 
         # Lanza el procesamiento en segundo plano
         thread = QThread()
-        worker = RecordWorker(self.controlador, self.currentRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles,self.side)
+        worker = RecordWorker(self.controlador, self.lastRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles,self.side)
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)

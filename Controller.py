@@ -4,10 +4,11 @@ import sys
 import asyncio
 import signal
 
-from PyQt5.QtCore import QCoreApplication
+from PyQt5.QtCore import QCoreApplication, QTimer
 from qasync import QEventLoop
 import json
 import time
+
 
 from LoggerManager import Logger
 from EnvironmentAdquisition import EnvironmentManager
@@ -136,6 +137,13 @@ class Controlador:
         
         self.pressure.begin_sampling()  # comienza el muestreo de presión
         self.acceleration.start()        # comienza el muestreo de aceleración/giroscopio
+
+        #Inicializo el timer
+
+        # # Iniciar timer (60 segundos)
+        # self.timer = QTimer(self)
+        # self.timer.timeout.connect(self.on_tick)
+        # self.timer.start(60_000)
 
 
     def on_new_pressure(self, timestamp,matrix):
