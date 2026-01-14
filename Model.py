@@ -512,6 +512,13 @@ class Model(QObject):
         #Inicio el timer
         self.timer.start()
 
+    # Cuando el hilo termine, eliminarlo de la lista
+    def remove_thread(self, thread):
+        if thread in self.thread:
+            self.thread.remove(thread)
+            self.logger.log(app="Modelo", func="startNextRecord", level=1,
+                            msg=f"Hilo de RecordWorker finalizado y eliminado ({len(self.thread)} restantes)")
+
     def startNextRecord(self):
         #Almaceno el timestamp actual
         timestamp=datetime.now().strftime('%H:%M:%S.%f')[:-3]
@@ -532,14 +539,7 @@ class Model(QObject):
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
 
-        # Cuando el hilo termine, eliminarlo de la lista
-        def remove_thread():
-            if thread in self.thread:
-                self.thread.remove(thread)
-                self.logger.log(app="Modelo", func="startNextRecord", level=1,
-                                msg=f"Hilo de RecordWorker finalizado y eliminado ({len(self.thread)} restantes)")
-
-        thread.finished.connect(remove_thread)
+        thread.finished.connect(lambda: self.remove_thread(thread))
 
         thread.start()
 

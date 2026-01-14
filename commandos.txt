@@ -16,4 +16,12 @@ rsync -avz \
   gibic@192.168.0.102:/home/gibic/PruebaEnC/DataStorage/ \
   /home/desarrollo-robbo/Documentos/PruebaEnC/DataStorage/
 
+  rsync -avz \
+  --include='*/' \
+  --include='*.json' \
+  --exclude='*' \
+  gibic@192.168.0.102:/home/gibic/PruebaEnC/DataStorage/ \
+  /home/desarrollo-robbo/Documentos/PruebaEnC/DataStorage/
+
+
 
