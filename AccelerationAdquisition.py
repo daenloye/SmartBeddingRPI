@@ -2,7 +2,7 @@ import time
 import numpy as np
 import spidev
 from datetime import datetime
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 
 # -----------------------------
 # Constantes del ICM42605
@@ -28,9 +28,9 @@ gRes = (2000/(2**(GFS_250DPS))) / 32768  # dps/LSB
 # Worker (hilo real de adquisición)
 # -----------------------------
 class AccelerationWorker(QObject):
-    new_sample = pyqtSignal(str,np.ndarray)
+    new_data = pyqtSignal(np.ndarray)
 
-    def __init__(self, bus=0, device=0, interval=0.02):
+    def __init__(self, bus=0, device=0):
         """
         Worker que lee datos del ICM42605 vía SPI
         :param bus: Bus SPI
@@ -41,7 +41,6 @@ class AccelerationWorker(QObject):
         self.spi = spidev.SpiDev()
         self.bus = bus
         self.device = device
-        self.interval = interval
         self.running = False
 
     # --- Inicialización de hardware ---
@@ -71,26 +70,19 @@ class AccelerationWorker(QObject):
     def run(self):
         self.init_sensor()
         self.running = True
-        next_time = time.perf_counter() + self.interval
 
         while self.running:
-            now = time.perf_counter()
-            if now >= next_time:
+            # timestamp=datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            # print(f"[{timestamp}] Nueva muestra acel")
 
-                timestamp=datetime.now().strftime('%H:%M:%S.%f')[:-3]
-                # print(f"[{timestamp}] Nueva muestra acel")
+            gx, gy, gz, ax, ay, az = self.read_sensor()
+            data = np.array([gx, gy, gz, ax, ay, az], dtype=float)
+            # self.new_sample.emit(timestamp,data)
+            
+            self.new_data.emit(data)
 
-                gx, gy, gz, ax, ay, az = self.read_sensor()
-                data = np.array([gx, gy, gz, ax, ay, az], dtype=float)
-                self.new_sample.emit(timestamp,data)
-
-                # siguiente instante exacto
-                next_time += self.interval
-                if now > next_time + self.interval:
-                    next_time = now + self.interval
-            else:
-                time.sleep(0.005)  # evita 100% CPU
-
+            time.sleep(0.005)  # evita 100% CPU
+            
         self.spi.close()
 
     def read_sensor(self):
@@ -115,17 +107,35 @@ class AccelerationWorker(QObject):
 class AccelerationReader(QObject):
     new_sample = pyqtSignal(str,np.ndarray)
 
-    def __init__(self, bus=0, device=0, interval=0.02):
+    def __init__(self, bus=0, device=0, interval=0.05):
         super().__init__()
         self.thread = QThread()
-        self.worker = AccelerationWorker(bus, device, interval)
+        self.worker = AccelerationWorker(bus, device)
         self.worker.moveToThread(self.thread)
-
-        self.worker.new_sample.connect(self.new_sample)
         self.thread.started.connect(self.worker.run)
+        self.interval = interval
+
+        #Variable que almacena la data
+        self.data = None
+        self.worker.new_data.connect(self.handle_new_data)
+
+        #Genero un timer
+        self.timer = QTimer(self)
+        self.timer.setInterval(int(self.interval * 1000))  # milisegundos
+        self.timer.timeout.connect(self.on_timeout)
+
+
+    def handle_new_data(self, data):
+        self.data = data.copy()
+
+    def on_timeout(self):
+        if self.data is not None:
+            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            self.new_sample.emit(timestamp, self.data.copy())
 
     def start(self):
         self.thread.start()
+        self.timer.start()
 
     def stop(self):
         self.worker.stop()

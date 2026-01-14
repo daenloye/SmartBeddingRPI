@@ -4,6 +4,7 @@ rsync -avz \
   --exclude='.git/' \
   --exclude='__pycache__/' \
   --exclude='*.vscode' \
+  --exclude='DataStorage/' \
   /home/desarrollo-robbo/Documentos/PruebaEnC/ \
   gibic@192.168.0.100:/home/gibic/PruebaEnC/
 
@@ -11,7 +12,8 @@ rsync -avz \
   --exclude='.venv/' \
   --exclude='__pycache__/' \
   --exclude='*.pyc' \
-  gibic@192.168.0.100:/home/gibic/PruebaEnC/ \
-  /home/desarrollo-robbo/Documentos/PruebaEnC/
+  --exclude='DataStorage/*/*.wav' \
+  gibic@192.168.0.100:/home/gibic/PruebaEnC/DataStorage/ \
+  /home/desarrollo-robbo/Documentos/PruebaEnC/DataStorage/
 
 
