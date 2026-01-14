@@ -132,9 +132,12 @@ class Controlador:
         
         # Conectar la señal del worker a un método local
         self.pressure.new_sample.connect(self.on_new_pressure)
-
         self.acceleration.new_sample.connect(self.on_new_acceleration)
-        
+
+        #Inicializo el almacenamiento
+        self.model.initializeNewRecord()
+
+        #Inicializo los workers
         self.pressure.start()  # comienza el muestreo de presión
         self.acceleration.start()        # comienza el muestreo de aceleración/giroscopio
 

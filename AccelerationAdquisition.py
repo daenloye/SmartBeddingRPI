@@ -3,6 +3,7 @@ import numpy as np
 import spidev
 from datetime import datetime
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
+from ClockWorker import ClockWorker
 
 # -----------------------------
 # Constantes del ICM42605
@@ -100,44 +101,47 @@ class AccelerationWorker(QObject):
     def stop(self):
         self.running = False
 
-
 # -----------------------------
 # Reader (fachada que maneja hilo y worker)
 # -----------------------------
 class AccelerationReader(QObject):
-    new_sample = pyqtSignal(str,np.ndarray)
+    new_sample = pyqtSignal(str, np.ndarray)
 
     def __init__(self, bus=0, device=0, interval=0.05):
         super().__init__()
-        self.thread = QThread()
-        self.worker = AccelerationWorker(bus, device)
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.interval = interval
 
-        #Variable que almacena la data
+        # Thread sensor
+        self.sensor_thread = QThread()
+        self.worker = AccelerationWorker(bus, device)
+        self.worker.moveToThread(self.sensor_thread)
+        self.sensor_thread.started.connect(self.worker.run)
+
+        # Thread reloj
+        self.clock_thread = QThread()
+        self.clock = ClockWorker(interval)
+        self.clock.moveToThread(self.clock_thread)
+        self.clock_thread.started.connect(self.clock.run)
+        self.clock.tick.connect(self.on_tick)
+
         self.data = None
         self.worker.new_data.connect(self.handle_new_data)
-
-        #Genero un timer
-        self.timer = QTimer(self)
-        self.timer.setInterval(int(self.interval * 1000))  # milisegundos
-        self.timer.timeout.connect(self.on_timeout)
-
 
     def handle_new_data(self, data):
         self.data = data.copy()
 
-    def on_timeout(self):
+    def on_tick(self):
         if self.data is not None:
-            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-            self.new_sample.emit(timestamp, self.data.copy())
+            ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            self.new_sample.emit(ts, self.data.copy())
 
     def start(self):
-        self.thread.start()
-        self.timer.start()
+        self.sensor_thread.start()
+        self.clock_thread.start()
 
     def stop(self):
         self.worker.stop()
-        self.thread.quit()
-        self.thread.wait()
+        self.clock.stop()
+        self.sensor_thread.quit()
+        self.clock_thread.quit()
+        self.sensor_thread.wait()
+        self.clock_thread.wait()

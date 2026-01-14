@@ -4,6 +4,7 @@ import numpy as np
 import time
 from datetime import datetime
 from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal,  QTimer
+from ClockWorker import ClockWorker
 
 ROW_SIZE = 16
 COL_SIZE = 12
@@ -57,36 +58,48 @@ class PressureReader(QObject):
     def __init__(self, lib_path="./libmatrix.so", interval=1.0):
         super().__init__()
 
-        self.interval = interval
-
-        # Hilo
-        self.thread = QThread()
+        # -------------------------
+        # Thread de adquisición
+        # -------------------------
+        self.sensor_thread = QThread()
         self.worker = PressureWorker(lib_path)
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
+        self.worker.moveToThread(self.sensor_thread)
+        self.sensor_thread.started.connect(self.worker.run)
 
-        # Última muestra
+        # -------------------------
+        # Thread de clock exacto
+        # -------------------------
+        self.clock_thread = QThread()
+        self.clock = ClockWorker(interval)
+        self.clock.moveToThread(self.clock_thread)
+        self.clock_thread.started.connect(self.clock.run)
+        self.clock.tick.connect(self.on_tick)
+
+        # -------------------------
+        # Última muestra disponible
+        # -------------------------
         self.data = None
         self.worker.new_data.connect(self.handle_new_data)
-
-        # Timer EXACTO
-        self.timer = QTimer(self)
-        self.timer.setInterval(int(self.interval * 1000))
-        self.timer.timeout.connect(self.on_timeout)
 
     def handle_new_data(self, data):
         self.data = data.copy()
 
-    def on_timeout(self):
+    def on_tick(self):
         if self.data is not None:
             timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
             self.new_sample.emit(timestamp, self.data.copy())
 
     def start(self):
-        self.thread.start()
-        self.timer.start()
+        self.sensor_thread.start()
+        self.clock_thread.start()
 
     def stop(self):
         self.worker.stop()
-        self.thread.quit()
-        self.thread.wait()
+        self.clock.stop()
+
+        self.sensor_thread.quit()
+        self.clock_thread.quit()
+
+        self.sensor_thread.wait()
+        self.clock_thread.wait()
+

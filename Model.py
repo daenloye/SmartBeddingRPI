@@ -407,8 +407,6 @@ class MinuteRecord:
         self.initTimestamp=0
         self.finishTimestamp=0
 
-        self.duration = 60 * 1 # duración deseada en segundos
-
     def storePressure(self, timestamp, pressure):
         self.pressureData.append({'timestamp': timestamp, 'measure': pressure})
 
@@ -418,19 +416,19 @@ class MinuteRecord:
     def storeEnvironment(self, timestamp, temperature, humidity):
         self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
 
-    def checkFull(self, currentTimestamp):
-        """Devuelve True si ya pasó 1 minuto desde el inicio del registro"""
-        if self.initTimestamp == 0:
-            return False
+    # def checkFull(self, currentTimestamp):
+    #     """Devuelve True si ya pasó 1 minuto desde el inicio del registro"""
+    #     if self.initTimestamp == 0:
+    #         return False
 
-        fmt = "%H:%M:%S.%f"
+    #     fmt = "%H:%M:%S.%f"
 
-        current = datetime.strptime(currentTimestamp, fmt)
-        init = datetime.strptime(self.initTimestamp, fmt)
+    #     current = datetime.strptime(currentTimestamp, fmt)
+    #     init = datetime.strptime(self.initTimestamp, fmt)
 
-        elapsed = (current - init).total_seconds()
+    #     elapsed = (current - init).total_seconds()
 
-        return elapsed >= self.duration
+    #     return elapsed >= self.duration
 
 #------------------------------------------------------
 # Clase: Gestiona lo relacionado con el manejo de la información
@@ -457,6 +455,13 @@ class Model(QObject):
         self.thread = []
 
         self.side ="R" # Lado por defecto
+
+        self.duration = 1000*60  # duración deseada en segundos
+
+        #Genero un timer
+        self.timer = QTimer(self)
+        self.timer.setInterval(self.duration)  # milisegundos
+        self.timer.timeout.connect(self.startNextRecord)
 
     #-----------------------------------------
     # Método para inicializar el almacenamiento
@@ -491,10 +496,6 @@ class Model(QObject):
 
         self.currentRecord.storePressure(timestamp, pressure)
 
-        #Analizo si debo continuar con el registro actual o guardar y crear uno nuevo
-        if self.currentRecord.checkFull(timestamp):
-            self.startNextRecord(timestamp)
-
     def storeAcceleration(self, timestamp, acceleration):
         if self.currentRecord is None:
             self.currentRecord = MinuteRecord()
@@ -502,13 +503,24 @@ class Model(QObject):
 
         self.currentRecord.storeAcceleration(timestamp, acceleration)
 
-        #Analizo si debo continuar con el registro actual o guardar y crear uno nuevo
-        if self.currentRecord.checkFull(timestamp):
-            self.startNextRecord(timestamp)
+    def initializeNewRecord(self):
 
-    def startNextRecord(self, timestamp):
-        self.currentRecord.finishTimestamp = timestamp #Almacena el cierre del archivo
-        self.lastRecord.append(self.currentRecord) #Lo pasa a lastRecord
+        timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        self.currentRecord = MinuteRecord()
+        self.currentRecord.initTimestamp = timestamp
+
+        #Inicio el timer
+        self.timer.start()
+
+    def startNextRecord(self):
+        #Almaceno el timestamp actual
+        timestamp=datetime.now().strftime('%H:%M:%S.%f')[:-3]
+
+        #Almaceno el cierre del registro actual
+        self.currentRecord.finishTimestamp = timestamp
+
+         #Lo pasa a lastRecord
+        self.lastRecord.append(self.currentRecord)
 
         # Lanza el procesamiento en segundo plano
         thread = QThread()
@@ -535,6 +547,8 @@ class Model(QObject):
         
         #Crear uno nuevo
         self.currentRecord = MinuteRecord()
+
+        #Almaceno el timestamp de inicio
         self.currentRecord.initTimestamp = timestamp
 
         #Emito el log
