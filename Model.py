@@ -407,7 +407,7 @@ class MinuteRecord:
         self.initTimestamp=0
         self.finishTimestamp=0
 
-        self.duration = 60 * 3 # duración deseada en segundos
+        self.duration = 60 * 1 # duración deseada en segundos
 
     def storePressure(self, timestamp, pressure):
         self.pressureData.append({'timestamp': timestamp, 'measure': pressure})

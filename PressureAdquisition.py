@@ -3,21 +3,27 @@ import ctypes
 import numpy as np
 import time
 from datetime import datetime
-from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal,  QTimer
 
 ROW_SIZE = 16
 COL_SIZE = 12
 
+# PressureAdquisition.py
+import ctypes
+import numpy as np
+import time
+from PyQt5.QtCore import QObject, pyqtSignal
 
+ROW_SIZE = 16
+COL_SIZE = 12
 
 class PressureWorker(QObject):
-    new_sample = pyqtSignal(str,np.ndarray)
+    new_data = pyqtSignal(np.ndarray)
 
     def __init__(self, lib_path="./libmatrix.so"):
         super().__init__()
-        # ---------------------------
-        # Inicialización de hardware
-        # ---------------------------
+
+        # Cargar librería
         self.lib = ctypes.CDLL(lib_path)
         self.lib.matrix_init()
         self.lib.matrix_update.argtypes = [ctypes.POINTER(ctypes.c_uint16)]
@@ -26,84 +32,61 @@ class PressureWorker(QObject):
         self.matrix = np.zeros((ROW_SIZE, COL_SIZE), dtype=np.uint16)
         self.buf = (ctypes.c_uint16 * (ROW_SIZE * COL_SIZE))()
 
-        # Variables de sincronización
-        self.interval = 1.0  # segundos exactos
-        self.next_time = None
-        self.sampling = False
+        self.running = False
 
-    def start_sampling(self):
-        """Comienza el muestreo periódico exacto a 1 Hz"""
-        if not self.sampling:
-            self.sampling = True
-            self.next_time = time.perf_counter() + self.interval
-            self._schedule_next()
+    def run(self):
+        self.running = True
 
-    def stop_sampling(self):
-        """Detiene el muestreo"""
-        self.sampling = False
-        self.next_time = None
+        while self.running:
+            self.lib.matrix_update(self.buf)
+            self.matrix[:, :] = np.frombuffer(
+                self.buf, dtype=np.uint16
+            ).reshape(ROW_SIZE, COL_SIZE)
 
-    def _schedule_next(self):
-        """Programa el próximo tick exactamente"""
-        if not self.sampling or self.next_time is None:
-            return
+            self.new_data.emit(self.matrix.copy())
 
-        now = time.perf_counter()
-        delay = max(0, self.next_time - now)  # segundos → no negativo
-        QTimer.singleShot(int(delay * 1000), self._tick)
+            time.sleep(0.1)  # ~10 Hz (ajustable)
 
-    def _tick(self):
-        if not self.sampling:
-            return
+    def stop(self):
+        self.running = False
 
-        self.read()
 
-        # Avanza al próximo instante exacto
-        self.next_time += self.interval
+class PressureReader(QObject):
+    new_sample = pyqtSignal(str, np.ndarray)
 
-        # Si hubo retraso acumulado, corrige para no perder sincronía
-        now = time.perf_counter()
-        if now > self.next_time + self.interval:
-            self.next_time = now + self.interval
+    def __init__(self, lib_path="./libmatrix.so", interval=1.0):
+        super().__init__()
 
-        self._schedule_next()
+        self.interval = interval
 
-    def read(self):
-        # Debug con milisegundos
-        timestamp=datetime.now().strftime('%H:%M:%S.%f')[:-3]
-        # print(f"[{timestamp}] Nueva muestra")
-
-        self.lib.matrix_update(self.buf)
-        self.matrix[:, :] = np.frombuffer(self.buf, dtype=np.uint16).reshape(ROW_SIZE, COL_SIZE)
-
-        self.new_sample.emit(timestamp,self.matrix.copy())
-
-class PressureReader:
-    def __init__(self, lib_path="./libmatrix.so", loop=None, logger=None):
-        # Hilo de Qt
+        # Hilo
         self.thread = QThread()
         self.worker = PressureWorker(lib_path)
-
-        # Mover el worker al hilo
         self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
 
-        # Guardar referencia a worker.start_sampling para cuando se inicie el hilo
-        self.thread.started.connect(lambda: print("[PressureReader] Hilo listo"))
+        # Última muestra
+        self.data = None
+        self.worker.new_data.connect(self.handle_new_data)
+
+        # Timer EXACTO
+        self.timer = QTimer(self)
+        self.timer.setInterval(int(self.interval * 1000))
+        self.timer.timeout.connect(self.on_timeout)
+
+    def handle_new_data(self, data):
+        self.data = data.copy()
+
+    def on_timeout(self):
+        if self.data is not None:
+            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            self.new_sample.emit(timestamp, self.data.copy())
 
     def start(self):
-        """Inicia el hilo (pero no empieza a muestrear aún)"""
         self.thread.start()
+        self.timer.start()
 
-    def begin_sampling(self):
-        """Ordena al worker que comience a muestrear"""
-        self.worker.start_sampling()
-
-    def stop_sampling(self):
-        """Detiene el muestreo pero mantiene el hilo vivo"""
-        self.worker.stop_sampling()
-
-    def shutdown(self):
-        """Cierra todo el hilo y detiene worker"""
-        self.worker.stop_sampling()
+    def stop(self):
+        self.worker.stop()
         self.thread.quit()
         self.thread.wait()

@@ -67,7 +67,7 @@ class Controlador:
         # -----------------------------------------
         # Presión
         # -----------------------------------------
-        self.pressure = PressureReader(loop=self.loop, logger=self.logger)
+        self.pressure = PressureReader(interval=1.0)
         self.pressure.start()          # inicializa y prepara el hilo
 
         # -----------------------------------------
@@ -92,7 +92,7 @@ class Controlador:
         self.logger.log(app="Controlador", func="quit", level=0,
                         msg=f"Ha llegado la señal de salida ({sig})")
         
-        self.pressure.shutdown() # detiene el muestreo y cierra el hilo
+        self.pressure.stop() # detiene el muestreo y cierra el hilo
         self.acceleration.stop()  # detiene el muestreo y cierra el hilo
 
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
@@ -131,11 +131,11 @@ class Controlador:
                         msg="Iniciando lógica principal")
         
         # Conectar la señal del worker a un método local
-        self.pressure.worker.new_sample.connect(self.on_new_pressure)
+        self.pressure.new_sample.connect(self.on_new_pressure)
 
-        # self.acceleration.worker.new_sample.connect(self.on_new_acceleration)
+        self.acceleration.new_sample.connect(self.on_new_acceleration)
         
-        self.pressure.begin_sampling()  # comienza el muestreo de presión
+        self.pressure.start()  # comienza el muestreo de presión
         self.acceleration.start()        # comienza el muestreo de aceleración/giroscopio
 
         #Inicializo el timer
