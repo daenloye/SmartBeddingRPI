@@ -1,0 +1,16 @@
+Resumen del modelo:
+ID                                                               12869
+Modelo                                              RF_70trees_depth10
+Num_Car                                                              7
+Características      [STD, Kurtosis, Coverage_Total, Coverage_REG4,...
+Accuracy                                                      0.808081
+Precision                                                     0.806744
+Recall                                                        0.808081
+F1                                                            0.807288
+Kappa                                                         0.712121
+Training Time (s)                                             0.234568
+Confusion Matrix                  [[24, 3, 6], [2, 30, 1], [6, 1, 26]]
+Name: 12869, dtype: object
+
+Características utilizadas:
+['STD', 'Kurtosis', 'Coverage_Total', 'Coverage_REG4', 'Balance', 'CM_X', 'CM_Y']

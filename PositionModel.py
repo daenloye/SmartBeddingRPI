@@ -212,13 +212,13 @@ def procesarMuestra(data_raw,side="R"):
     }
 
     # Cargo las características y modelo
-    elementos = os.listdir(os.path.join("PositionModel"))
+    elementos = os.listdir(os.path.join("PositionModel/General"))
 
     caracteristicasSeleccionadas = None
     model = None
 
     for elemento in elementos:
-        ruta = os.path.join("PositionModel", elemento)
+        ruta = os.path.join("PositionModel","General", elemento)
         if elemento.endswith(".txt"):
             with open(ruta, "r", encoding="utf-8") as w:
                 for linea in w.readlines():

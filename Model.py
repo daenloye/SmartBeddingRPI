@@ -6,6 +6,7 @@ import json
 from scipy.signal import lfilter, filtfilt, detrend, find_peaks
 import psutil
 from datetime import datetime
+import copy
 
 from PositionModel import procesarMuestra
 
@@ -43,10 +44,10 @@ a_crs = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.0
 class RecordWorker(QObject):
     finished = pyqtSignal()
 
-    def __init__(self, controlador, record_list, folder, id, logger,debug,position="R"):
+    def __init__(self, controlador, record, folder, id, logger,debug,position="R"):
         super().__init__()
         self.controlador=controlador
-        self.record:MinuteRecord = record_list.pop(0)
+        self.record:MinuteRecord = record
         self.logger = logger
         self.id=id
         self.folder = folder
@@ -394,7 +395,6 @@ class RecordWorker(QObject):
 
         finally:
             self.finished.emit()
-
 #------------------------------------------------------
 # DataObject: Almacena la información
 #------------------------------------------------------
@@ -415,6 +415,15 @@ class MinuteRecord:
 
     def storeEnvironment(self, timestamp, temperature, humidity):
         self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
+
+    def clone(self):
+        new = MinuteRecord()
+        new.pressureData = copy.deepcopy(self.pressureData)
+        new.acelerationData = copy.deepcopy(self.acelerationData)
+        new.environmentData = copy.deepcopy(self.environmentData)
+        new.initTimestamp = self.initTimestamp
+        new.finishTimestamp = self.finishTimestamp
+        return new 
 
     # def checkFull(self, currentTimestamp):
     #     """Devuelve True si ya pasó 1 minuto desde el inicio del registro"""
@@ -444,7 +453,7 @@ class Model(QObject):
         self.debugFiles=degugFiles
 
         self.currentRecord = None  # Variable que almacena el registro actual
-        self.lastRecord = []     # Variable que almacena el último registro guardado
+        # self.lastRecord = deque()     # Variable que almacena el último registro guardado
 
         # Inicializo los archivos
         self.idCurrentRecord = 1
@@ -527,11 +536,14 @@ class Model(QObject):
         self.currentRecord.finishTimestamp = timestamp
 
          #Lo pasa a lastRecord
-        self.lastRecord.append(self.currentRecord)
+        # self.lastRecord.append(self.currentRecord)
+
+        #Saco una copia de lastRecord
+        record_copy = self.currentRecord.clone()
 
         # Lanza el procesamiento en segundo plano
         thread = QThread()
-        worker = RecordWorker(self.controlador, self.lastRecord, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles,self.side)
+        worker = RecordWorker(self.controlador, record_copy, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles,self.side)
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
