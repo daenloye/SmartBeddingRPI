@@ -352,7 +352,7 @@ class RecordWorker(QObject):
             # ------------------------------------------
 
             # if posIndex!=-1:
-            if True:
+            if False:
 
                 #        self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
 
@@ -387,11 +387,11 @@ class RecordWorker(QObject):
 
             # Log de fin
             self.logger.log(app="Modelo", func="RecordWorker", level=0,
-                            msg=f"Registro {self.record.initTimestamp} procesado correctamente")
+                            msg=f"Registro {self.record.initTimestamp} #{self.id} procesado correctamente")
 
         except Exception as e:
             self.logger.log(app="Modelo", func="RecordWorker", level=3,
-                            msg=f"Error procesando registro: {str(e)}")
+                            msg=f"Error procesando registro #{self.id}: {str(e)}")
 
         finally:
             self.finished.emit()

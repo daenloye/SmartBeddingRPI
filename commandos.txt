@@ -5,15 +5,16 @@ rsync -avz \
   --exclude='__pycache__/' \
   --exclude='*.vscode' \
   --exclude='DataStorage/' \
+  --exclude='Logs/' \
   /home/desarrollo-robbo/Documentos/PruebaEnC/ \
-  gibic@192.168.0.102:/home/gibic/PruebaEnC/
+  gibic@192.168.0.103:/home/gibic/PruebaEnC/
 
 rsync -avz \
   --exclude='.venv/' \
   --exclude='__pycache__/' \
   --exclude='*.pyc' \
   --exclude='DataStorage/*/*.wav' \
-  gibic@192.168.0.102:/home/gibic/PruebaEnC/DataStorage/ \
+  gibic@192.168.0.103:/home/gibic/PruebaEnC/DataStorage/ \
   /home/desarrollo-robbo/Documentos/PruebaEnC/DataStorage/
 
   rsync -avz \
@@ -22,6 +23,12 @@ rsync -avz \
   --exclude='*' \
   gibic@192.168.0.102:/home/gibic/PruebaEnC/DataStorage/ \
   /home/desarrollo-robbo/Documentos/PruebaEnC/DataStorage/
+
+    rsync -avz \
+  --include='*/' \
+  gibic@192.168.0.103:/home/gibic/PruebaEnC/Logs/ \
+  /home/desarrollo-robbo/Documentos/PruebaEnC/Logs/
+
 
 
 
