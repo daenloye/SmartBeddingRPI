@@ -7,6 +7,8 @@ from scipy.signal import lfilter, filtfilt, detrend, find_peaks
 import psutil
 from datetime import datetime
 import copy
+import time
+from collections import deque
 
 from PositionModel import procesarMuestra
 
@@ -39,10 +41,7 @@ a_crs = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.0
 #------------------------------------------------------
 # Worker: procesa y guarda un registro en segundo plano
 #------------------------------------------------------
-
-
 class RecordWorker(QObject):
-    finished = pyqtSignal()
 
     def __init__(self, controlador, record, folder, id, logger,debug,position="R"):
         super().__init__()
@@ -393,8 +392,44 @@ class RecordWorker(QObject):
             self.logger.log(app="Modelo", func="RecordWorker", level=3,
                             msg=f"Error procesando registro #{self.id}: {str(e)}")
 
-        finally:
-            self.finished.emit()
+class RecordProcesser(QThread):
+    # Definimos señales para comunicarnos con la interfaz
+    progress = pyqtSignal(int)
+    finished_task = pyqtSignal(str)
+
+    def __init__(self, logger):
+        super().__init__()
+        self.__running=True
+        self.logger = logger
+
+        #Defino la cola
+        self.queue=deque()
+
+    def addRecord(self,record:RecordWorker):
+        self.queue.append(record)
+
+    def stop(self):
+        self.__running=False
+
+    def run(self):
+        # Aquí va el código que toma mucho tiempo
+        while self.__running:
+            if len(self.queue)>0:
+                #Obtengo el registro
+                record:RecordWorker=self.queue.popleft()
+
+                #Lo proceso
+                record.run()
+
+                #Espero un tiempo para no saturar
+                time.sleep(2)
+
+                self.logger.log(app="Modelo", func="RecordProcesser", level=0,
+                msg=f"Datos procesados, ({len(self.queue)} restantes)")
+            else:
+                #Espero un tiempo prudencial para no saturar el sistema
+                time.sleep(10)
+
 #------------------------------------------------------
 # DataObject: Almacena la información
 #------------------------------------------------------
@@ -460,9 +495,6 @@ class Model(QObject):
         self.currentFolder = ""
         self.initStore()
 
-        #Variable de thread
-        self.thread = []
-
         self.side ="R" # Lado por defecto
 
         self.duration = 1000*60  # duración deseada en segundos
@@ -471,6 +503,11 @@ class Model(QObject):
         self.timer = QTimer(self)
         self.timer.setInterval(self.duration)  # milisegundos
         self.timer.timeout.connect(self.startNextRecord)
+
+        #Inicializo el hilo
+        self.record_processor = RecordProcesser(self.logger)
+        self.record_processor.start()
+
 
     #-----------------------------------------
     # Método para inicializar el almacenamiento
@@ -521,13 +558,6 @@ class Model(QObject):
         #Inicio el timer
         self.timer.start()
 
-    # Cuando el hilo termine, eliminarlo de la lista
-    def remove_thread(self, thread):
-        if thread in self.thread:
-            self.thread.remove(thread)
-            self.logger.log(app="Modelo", func="startNextRecord", level=1,
-                            msg=f"Hilo de RecordWorker finalizado y eliminado ({len(self.thread)} restantes)")
-
     def startNextRecord(self):
         #Almaceno el timestamp actual
         timestamp=datetime.now().strftime('%H:%M:%S.%f')[:-3]
@@ -541,21 +571,11 @@ class Model(QObject):
         #Saco una copia de lastRecord
         record_copy = self.currentRecord.clone()
 
-        # Lanza el procesamiento en segundo plano
-        thread = QThread()
+        #Genero el objeto que almacenará
         worker = RecordWorker(self.controlador, record_copy, self.currentFolder, self.idCurrentRecord, self.logger,self.debugFiles,self.side)
-        worker.moveToThread(thread)
 
-        thread.started.connect(worker.run)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-
-        thread.finished.connect(lambda: self.remove_thread(thread))
-
-        thread.start()
-
-        self.thread.append(thread)  # Mantener una referencia al hilo
+        #Lo agrego a la cola del procesador
+        self.record_processor.addRecord(worker)
         
         #Crear uno nuevo
         self.currentRecord = MinuteRecord()
