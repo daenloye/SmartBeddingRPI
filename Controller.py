@@ -73,7 +73,7 @@ class Controlador:
         # -----------------------------------------
         # Aceleración/Giroscopio
         # -----------------------------------------
-        self.acceleration = AccelerationReader(interval=0.05)  # 20 Hz
+        self.acceleration = AccelerationReader(interval=0.05, device=1)  # 20 Hz
 
         # -----------------------------------------
         # Sonido

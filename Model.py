@@ -156,9 +156,17 @@ class RecordWorker(QObject):
         lk = time_seconds[peaks]
 
         # Cálculo de frecuencia cardíaca
+        if len(lk) < 2:
+            return 0, 0
+        
         diff_time = lk[-1] - lk[0]
-        heart_rate = len(pk[1:]) * 60 / diff_time  # bpm
-        heart_rate_variability = np.mean(np.diff(lk))
+
+        if diff_time <= 0 or len(pk) < 2:
+            heart_rate = 0
+            heart_rate_variability = 0
+        else:
+            heart_rate = len(pk[1:]) * 60 / diff_time  # bpm
+            heart_rate_variability = np.mean(np.diff(lk))
 
         return heart_rate, heart_rate_variability
 

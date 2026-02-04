@@ -87,14 +87,20 @@ class AccelerationWorker(QObject):
         self.spi.close()
 
     def read_sensor(self):
-        raw = self.read_regs(TEMP_REG, length=14)
+        try:
+            raw = self.read_regs(TEMP_REG, length=14)
 
-        gx = self.to_signed((raw[0] << 8) | raw[1]) * gRes
-        gy = self.to_signed((raw[2] << 8) | raw[3]) * gRes
-        gz = self.to_signed((raw[4] << 8) | raw[5]) * gRes
-        ax = self.to_signed((raw[6] << 8) | raw[7]) * aRes
-        ay = self.to_signed((raw[8] << 8) | raw[9]) * aRes
-        az = self.to_signed((raw[10] << 8) | raw[11]) * aRes
+            gx = self.to_signed((raw[0] << 8) | raw[1]) * gRes
+            gy = self.to_signed((raw[2] << 8) | raw[3]) * gRes
+            gz = self.to_signed((raw[4] << 8) | raw[5]) * gRes
+            ax = self.to_signed((raw[6] << 8) | raw[7]) * aRes
+            ay = self.to_signed((raw[8] << 8) | raw[9]) * aRes
+            az = self.to_signed((raw[10] << 8) | raw[11]) * aRes
+        
+        except Exception as e:
+            print(f"Error leyendo sensor: {e}")
+            
+            gx, gy, gz, ax, ay, az = 0, 0, 0, 0, 0, 0
 
         return gx, gy, gz, ax, ay, az
 
