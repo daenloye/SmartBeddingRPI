@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 import json
 import numpy as np
+from collections import deque
 
 
 class MQTTWorker(QThread):
@@ -97,7 +98,7 @@ class MQTTManager(QObject):
         super().__init__()
         self.logger = logger
         self.worker = None
-        self.queue = []
+        self.queue:deque = deque()
         self.connection = False
 
         self.timer = QTimer()
@@ -128,6 +129,11 @@ class MQTTManager(QObject):
         existing = [d for d in os.listdir("Backups") if d.startswith(today)]
         backup_name = f"{today}_{len(existing)+1}"
         self.backup_path = os.path.join("Backups", backup_name)
+
+        #Variables para enviar cada cierto tiempo
+        self.__contador=0
+        self.__contadorSuccess=0
+        self.__minutosPorReporte=30
 
     def log(self, func, msg, level=0, error=None):
         if self.logger:
@@ -213,22 +219,39 @@ class MQTTManager(QObject):
 
     def receivData(self, data):
 
-        self.logger.log(app="MQTTManager", func="receivData", level=0,
-                        msg=f"Data recibida en MQTTManager")
+        #Sumo
+        self.__contador+=1
 
-        self.currentData["temperature"].append(data["temperature"])
-        self.currentData["humidity"].append(data["humidity"])
-        self.currentData["respiratoryRate"].append(data["respiratoryRate"])
-        self.currentData["heartRate"].append(data["heartRate"])
-        self.currentData["heartRateVariability"].append(data["heartRateVariability"])
-        self.currentData["position"][data["position"]["final"]["index"]] += 1
-        
-        if len(self.currentData["temperature"]) >= 1:
-            self.add_queue()
+        #Indico al log que ya llegó la data si el index es distinto de 01
+        if data.get("position",{}).get("final",{}).get("index",-1)!=-1:
+
+            self.logger.log(app="MQTTManager", func="receivData", level=0,
+                            msg=f"Data recibida en MQTTManager")
+
+            self.currentData["timestamp"]=data["finishTimestamp"]
+            self.currentData["temperature"].append(data["temperature"])
+            self.currentData["humidity"].append(data["humidity"])
+            self.currentData["respiratoryRate"].append(data["respiratoryRate"])
+            self.currentData["heartRate"].append(data["heartRate"])
+            self.currentData["heartRateVariability"].append(data["heartRateVariability"])
+            self.currentData["position"][data["position"]["final"]["index"]] += 1
+
+            #Aumento el contador de ok
+            self.__contadorSuccess+=1
+
+        #Analizo si debo añadir a cola o no
+        if(self.__contador==self.__minutosPorReporte):
+            #Analizo si cumple o no
+            if(self.__contadorSuccess>0):
+                #Envio reporte
+                self.add_queue()
+            else:
+                self.__contador=0
+                self.__contadorSuccess=0
 
     def processQueue(self):
         if not self.connection:
-            self.log("processQueue", "Sin conexión, no se procesa nada.", level=1)
+            self.log("processQueueMQTT", "Sin conexión, no se procesa nada.", level=1)
             return
 
         today = datetime.now().strftime("%Y-%m-%d")
@@ -245,7 +268,7 @@ class MQTTManager(QObject):
                 json_files = sorted([f for f in os.listdir(folder) if f.endswith(".json")])
                 if not json_files:
                     continue
-                self.log("processQueue", f"Procesando backups pendientes ({len(json_files)} archivos) en {folder}")
+                self.log("processQueueMQTT", f"Procesando backups pendientes ({len(json_files)} archivos) en {folder}")
                 for file in json_files:
                     file_path = os.path.join(folder, file)
                     try:
@@ -255,34 +278,42 @@ class MQTTManager(QObject):
                         topic = f"sb/record/{self.clientId}"
                         payload = json.dumps(data_to_send)
                         self.send_message(topic, payload)
-                        self.log("processQueue", f" → Backup reenviado y eliminado: {file_path}")
+                        self.log("processQueueMQTT", f" → Backup reenviado y eliminado: {file_path}")
                         os.remove(file_path)
                     except Exception as e:
-                        self.log("processQueue", f"Error al reenviar backup {file_path}", level=2, error=e)
+                        self.log("processQueueMQTT", f"Error al reenviar backup {file_path}", level=2, error=e)
                         break
                 if not os.listdir(folder):
                     os.rmdir(folder)
-                    self.log("processQueue", f"Carpeta de backup vacía eliminada: {folder}")
+                    self.log("processQueueMQTT", f"Carpeta de backup vacía eliminada: {folder}")
 
         # --- Procesar cola ---
         if not self.queue:
-            self.log("processQueue", "No hay mensajes en cola para procesar.")
+            self.log("processQueueMQTT", "No hay mensajes en cola para procesar.")
             return
 
-        self.log("processQueue", f"Procesando {len(self.queue)} mensajes en cola...")
+        self.log("processQueueMQTT", f"Procesando {len(self.queue)} mensajes en cola...")
         try:
-            for data in list(self.queue):
+            while self.queue:
+                #Obtenemos la data
+                data = self.queue[0]
+
                 topic = f"sb/record/{self.clientId}"
+
+                #Transformo el tiempo
+                dt_obj = datetime.strptime(data["timestamp"], '%Y-%m-%d %H:%M:%S.%f')
+                timest=int(dt_obj.timestamp())
+
                 data_to_send = {
                     "s": self.clientId,
                     "init": "1" if self.firstMessage else "0",
                     "ev": "0",
-                    "t": str(int(time.time())),
+                    "t": str(timest),
                     "var": {
                         "te": f"{np.mean(data['temperature']):.2f}" if data["temperature"] else "0",
                         "hu": f"{np.mean(data['humidity']):.2f}" if data["humidity"] else "0",
                         "hf": f"{np.mean(data['heartRate']):.2f}" if data["heartRate"] else "0",
-                        "bf": f"{np.mean(data['respiratoryRate']):.2f}" if data["respiratoryRate"] else "0",
+                        "bf": f"{np.nan_to_num(np.mean(data['respiratoryRate'])):.2f}" if data["respiratoryRate"] else "0",
                         "no": f"{self.__dbLevel:.2f}",  # Nivel de ruido
                         "ps": str(max(data["position"]) + 1),
                         "pm": {
@@ -302,7 +333,7 @@ class MQTTManager(QObject):
 
                 # --- Si no está inicializado, guarda backup y espera ---
                 if not self.inicializado:
-                    self.log("processQueue", "No inicializado → guardando backup y enviando initMessage...", level=1)
+                    self.log("processQueueMQTT", "No inicializado → guardando backup y enviando initMessage...", level=1)
                     self.createBackup(data_to_send)
                     self.initMessage()
                     time.sleep(2)
@@ -311,11 +342,11 @@ class MQTTManager(QObject):
                 # --- Envío normal ---
                 self.send_message(topic, payload)
                 self.log("processQueue", f" → Enviado desde cola: {data['timestamp']}")
-                self.queue.remove(data)
-
-            self.log("processQueue", "Todos los mensajes de la cola enviados correctamente.")
+                #Sacamos el elemento que acabamos de procesar con éxito
+                self.queue.popleft()
+            self.log("processQueueMQTT", "Todos los mensajes de la cola enviados correctamente.")
         except Exception as e:
-            self.log("processQueue", f"Error al enviar cola", level=2, error=e)
+            self.log("processQueueMQTT", f"Error al enviar cola", level=2, error=e)
 
     def initMessage(self):
         init_payload = {"s": self.clientId}

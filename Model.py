@@ -358,39 +358,33 @@ class RecordWorker(QObject):
             # Reporte MQTT
             # ------------------------------------------
 
-            # if posIndex!=-1:
-            if False:
+            MQTT_Report={
+                "initTimestamp": self.record.initTimestamp,
+                "finishTimestamp": self.record.finishTimestamp,
+                "temperature":np.mean([d["temperature"] for d in self.record.environmentData]),
+                "humidity":np.mean([d["humidity"] for d in self.record.environmentData]),
+                "respiratoryRate": RRS_freq,
+                "heartRate": HR,
+                "heartRateVariability":HRV,
+                "movementIndex": None,
+                "position": {
+                    "estimations":{
+                        "Vacio": pred_vacio,
+                        "Lateral Derecho": pred_latDer,
+                        "Lateral Izquierdo": pred_latIzq,
+                        "Supino": pred_supino
+                    },
+                    "final": {
+                        "name": posicion,
+                        "index": posIndex
+                    }
+                } 
+            }
 
-                #        self.environmentData.append({'timestamp': timestamp, 'temperature': temperature, 'humidity': humidity})
-
-                MQTT_Report={
-                    "initTimestamp": self.record.initTimestamp,
-                    "finishTimestamp": self.record.finishTimestamp,
-                    "temperature":np.mean([d["temperature"] for d in self.record.environmentData]),
-                    "humidity":np.mean([d["humidity"] for d in self.record.environmentData]),
-                    "respiratoryRate": RRS_freq,
-                    "heartRate": HR,
-                    "heartRateVariability":HRV,
-                    "movementIndex": None,
-                    "position": {
-                        "estimations":{
-                            "Vacio": pred_vacio,
-                            "Lateral Derecho": pred_latDer,
-                            "Lateral Izquierdo": pred_latIzq,
-                            "Supino": pred_supino
-                        },
-                        "final": {
-                            "name": posicion,
-                            "index": posIndex
-                        }
-                    } 
-                }
-
-                self.logger.log(app="Modelo", func="RecordWorker", level=0,
-                msg=f"Data enviada a MQTTManager")
-                
-                self.controlador.receivMqttData(MQTT_Report)
-
+            self.logger.log(app="Modelo", func="RecordWorker", level=0,
+            msg=f"Data enviada a MQTTManager")
+            
+            self.controlador.receivMqttData(MQTT_Report)
 
             # Log de fin
             self.logger.log(app="Modelo", func="RecordWorker", level=0,
@@ -559,7 +553,7 @@ class Model(QObject):
 
     def initializeNewRecord(self):
 
-        timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         self.currentRecord = MinuteRecord()
         self.currentRecord.initTimestamp = timestamp
 
@@ -568,7 +562,7 @@ class Model(QObject):
 
     def startNextRecord(self):
         #Almaceno el timestamp actual
-        timestamp=datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
         #Almaceno el cierre del registro actual
         self.currentRecord.finishTimestamp = timestamp
