@@ -7,7 +7,7 @@ rsync -avz \
   --exclude='DataStorage/' \
   --exclude='Logs/' \
   /home/desarrollo-robbo/Documentos/PruebaEnC/ \
-  gibic@192.168.0.103:/home/gibic/PruebaEnC/
+  gibic@192.168.0.112:/home/gibic/PruebaEnC/
 
 rsync -avz \
   --exclude='.venv/' \
