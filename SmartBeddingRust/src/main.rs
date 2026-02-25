@@ -1,52 +1,72 @@
-//cross build --target aarch64-unknown-linux-gnu --release
-
-mod pressure; // Declaramos el módulo
-
-use pressure::PressureMatrix;
+mod pressure;
+use pressure::{PressureMatrix, COL_SIZE, ROW_SIZE};
+use std::sync::{Arc, RwLock};
+use std::thread;
+use std::time::Duration;
+use tokio::time::{interval, MissedTickBehavior};
 use tokio::sync::mpsc;
-use std::time::{Instant, Duration};
+use chrono::Local;
 
 #[tokio::main]
 async fn main() {
-    println!("Iniciando lector de presión...");
+    let sensor = Arc::new(RwLock::new(
+        PressureMatrix::init().expect("Error I2C")
+    ));
 
-    // Creamos un canal para pasar la matriz del hilo de hardware al hilo principal
-    // mpsc = Multi-Producer, Single-Consumer
-    let (tx, mut rx) = mpsc::channel(5);
+    // Canal para enviar la matriz al hilo de dibujo (capacidad 1 para que no se acumule basura)
+    let (tx, mut rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
 
-    // Hilo de Hardware (Worker)
-    tokio::task::spawn_blocking(move || {
-        let mut sensor = PressureMatrix::init().expect("Fallo al inicializar hardware");
-        
+    // --- HILO 1: HARDWARE (Nativo) ---
+    let sensor_hw = Arc::clone(&sensor);
+    thread::spawn(move || {
         loop {
-            let data = sensor.scan();
-            if tx.blocking_send(data).is_err() {
-                break; // Si el receptor muere, paramos el loop
+            if let Ok(mut s) = sensor_hw.write() {
+                s.scan_and_update();
             }
+            thread::sleep(Duration::from_millis(50));
         }
     });
 
-    // Hilo de Procesamiento/UI (Main)
-    let mut frame_count = 0;
-    while let Some(matrix) = rx.recv().await {
-        frame_count += 1;
-        
-        // Limpiar pantalla (ANSI escape)
-        print!("\x1B[2J\x1B[H");
-        println!("Frame: {} | Datos recibidos de la matriz", frame_count);
-
-        for row in matrix.iter() {
-            for &val in row.iter() {
-                if val > 100 {
-                    print!("\x1B[1;32m{:5}\x1B[0m ", val);
-                } else {
-                    print!("{:5} ", val);
-                }
-            }
-            println!();
+    // --- HILO 2: RENDERIZADO (Consola) ---
+    tokio::spawn(async move {
+        while let Some((ts, matriz)) = rx.recv().await {
+            renderizar_matriz(ts, matriz);
         }
+    });
+
+    // --- HILO 3: EL METRÓNOMO (Main) ---
+    let mut milis_intervalo = interval(Duration::from_secs(1));
+    milis_intervalo.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    println!("Sistema operativo. Iniciando visualización segura...");
+
+    loop {
+        milis_intervalo.tick().await;
         
-        // Opcional: Pequeña pausa para no saturar la terminal
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
+        
+        if let Ok(s) = sensor.read() {
+            let copia = s.buffers[s.latest_idx];
+            // Enviamos al dibujante. try_send no bloquea si el dibujante está ocupado.
+            let _ = tx.try_send((timestamp, copia));
+        }
     }
+}
+
+fn renderizar_matriz(ts: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
+    let mut output = String::with_capacity(2048);
+    output.push_str("\x1B[2J\x1B[H"); // Limpiar pantalla
+    output.push_str(&format!("─── MUESTRA: {} ───\n\n", ts));
+
+    for row in matrix.iter() {
+        for &val in row.iter() {
+            if val > 100 {
+                output.push_str(&format!("\x1B[1;32m{:5}\x1B[0m ", val));
+            } else {
+                output.push_str(&format!("{:5} ", val));
+            }
+        }
+        output.push_str("\n");
+    }
+    print!("{}", output);
 }
