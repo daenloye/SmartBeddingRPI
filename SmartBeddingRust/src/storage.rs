@@ -4,6 +4,16 @@ use std::sync::Arc;
 use serde::Serialize;
 use crate::pressure::{COL_SIZE, ROW_SIZE};
 
+#[derive(Serialize, Clone, Default)]
+pub struct AudioMetrics {
+    pub db_avg: f32,
+    pub db_max: f32,
+    pub db_min: f32,
+    pub zcr: f32,
+    pub crest_factor: f32,
+    pub silence_percent: f32,
+}
+
 #[derive(Serialize, Clone)]
 pub struct PressureSample {
     pub timestamp: String,
@@ -35,13 +45,14 @@ pub struct SessionSchema {
     pub initTimestamp: String,
     pub finishTimestamp: String,
     pub dataRaw: DataRaw,
+    pub audioMetrics: Option<AudioMetrics>,
 }
 
 pub struct Storage;
 
 impl Storage {
     pub fn init_path() -> PathBuf {
-        let base_path = Path::new("./data");
+        let base_path = Path::new("/home/gibic/PruebaEnC/SmartBeddingRust/data_storage");
         if !base_path.exists() {
             fs::create_dir_all(base_path).ok();
         }

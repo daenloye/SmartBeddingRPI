@@ -21,7 +21,7 @@ pub const CONFIG: SystemConfig = SystemConfig {
     debug_mode: true,
 
     storage_enabled: true,
-    storage_path: "./data_storage",
+    storage_path: "/home/gibic/PruebaEnC/SmartBeddingRust/data_storage",
 
     acceleration_period_ms: 25,
     acceleration_trigger_ms: 50,  
