@@ -6,24 +6,26 @@ mod storage;
 use storage::Storage;
 use config::CONFIG;
 use pressure::{PressureMatrix, COL_SIZE, ROW_SIZE};
+
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
-use tokio::time::{interval, MissedTickBehavior};
+
 use tokio::sync::mpsc;
+use tokio::time::{interval, MissedTickBehavior};
 use chrono::Local;
 
 #[tokio::main]
 async fn main() {
+    // 1. Inicializar almacenamiento (Crea carpetas y prepara el buffer)
+    let mut storage = Storage::init();
 
-    let _storage = Storage::init();
-
-    // Inicialización del sensor con el chequeo de error
+    // 2. Inicialización del sensor
     let pressure_sensor = Arc::new(RwLock::new(
         PressureMatrix::init().expect("[PRESSURE] Error crítico: No se pudo inicializar el hardware I2C")
     ));
 
-    // Canal MPSC: Capacidad 1 para priorizar datos frescos sobre datos acumulados
+    // Canal MPSC: Definimos el tipo explícitamente para evitar errores de inferencia
     let (pressure_tx, mut pressure_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
 
     // --- HILO 1: HARDWARE (Lectura intensiva) ---
@@ -34,19 +36,24 @@ async fn main() {
             if let Ok(mut s) = sensor_hw.write() {
                 s.scan_and_update();
             }
-            // Usamos el delay definido en config
             thread::sleep(Duration::from_millis(CONFIG.scan_delay_ms));
         }
     });
 
-    // --- HILO 2: RENDERIZADO (Consola / UI) ---
+    // --- HILO 2: CONSUMIDOR (Renderizado y Storage en memoria) ---
     tokio::spawn(async move {
         while let Some((ts, matriz)) = pressure_rx.recv().await {
-            renderizar_matriz(ts, matriz);
+            // Renderizamos en consola
+            renderizar_matriz(ts.clone(), matriz);
+            
+            // Almacenamos en el buffer de memoria si está habilitado
+            if CONFIG.storage_enabled {
+                storage.add_sample(ts, matriz);
+            }
         }
     });
 
-    // --- HILO 4: SERVICIO BLUETOOTH (Opcional según config) ---
+    // --- HILO 4: SERVICIO BLUETOOTH ---
     tokio::spawn(async {
         if let Err(e) = bluetooth::run_bluetooth_service().await {
             eprintln!("[ERROR] Bluetooth: {}", e);
@@ -54,7 +61,6 @@ async fn main() {
     });
 
     // --- HILO 3: EL METRÓNOMO (Controlador de flujo) ---
-    // Busca donde creas el intervalo en el loop de main
     let mut milis_intervalo = interval(Duration::from_millis(CONFIG.pressure_trigger_ms));
     milis_intervalo.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -62,10 +68,9 @@ async fn main() {
         milis_intervalo.tick().await;
         let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
         
-        // Cambiamos try_read por read para que NO de error de "ocupado"
-        // El hardware sigue a su bola, el main solo pide el último buffer listo.
         if let Ok(s) = pressure_sensor.read() {
             let copia = s.buffers[s.latest_idx];
+            // Enviamos la copia al hilo consumidor
             let _ = pressure_tx.try_send((timestamp, copia));
         }
     }
@@ -73,13 +78,11 @@ async fn main() {
 
 fn renderizar_matriz(ts: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
     let mut output = String::with_capacity(2048);
-    // \x1B[2J limpia pantalla, \x1B[H mueve el cursor al inicio
     output.push_str("\x1B[2J\x1B[H"); 
     output.push_str(&format!("─── MUESTRA: {} (Threshold: {}) ───\n\n", ts, CONFIG.pressure_threshold));
 
     for row in matrix.iter() {
         for &val in row.iter() {
-            // Usamos el umbral de CONFIG para el color
             if val > CONFIG.pressure_threshold {
                 output.push_str(&format!("\x1B[1;32m{:5}\x1B[0m ", val));
             } else {
