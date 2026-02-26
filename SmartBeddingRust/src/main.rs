@@ -111,6 +111,7 @@ async fn main() {
                 initTimestamp: init_ts.clone(),
                 finishTimestamp: finish_ts.clone(),
                 dataRaw: std::mem::take(&mut current_data),
+                dataProcessed: storage::DataProcessed::default(), // <--- Añade esto
                 measures: Measures::default(),
                 performance: None,
             };

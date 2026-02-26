@@ -4,11 +4,14 @@ use std::sync::Arc;
 use serde::Serialize;
 use crate::pressure::{COL_SIZE, ROW_SIZE};
 use crate::config::CONFIG;
-use sysinfo::System; // API v0.30+
+use sysinfo::System; 
 
 // --- COEFICIENTES DE FILTROS (Traducidos de Python) ---
 const B_RRS: [f64; 7] = [4.975743576868226e-05, 0.0, -0.00014927230730604678, 0.0, 0.00014927230730604678, 0.0, -4.975743576868226e-05];
 const A_RRS: [f64; 7] = [1.0, -5.830766569820652, 14.185404142052889, -18.43141872929975, 13.489689338789688, -5.2728999261646115, 0.8599919781204693];
+
+const B_CRS: [f64; 9] = [0.0010739281487746567, 0.0, -0.004295712595098627, 0.0, 0.006443568892647941, 0.0, -0.004295712595098627, 0.0, 0.0010739281487746567];
+const A_CRS: [f64; 9] = [1.0, -6.4557706152374905, 18.656818730243238, -31.516992353914958, 34.03663934201975, -24.062919294682047, 10.877684610556427, -2.8761856141583015, 0.34094015209888484];
 
 #[derive(Serialize, Clone, Default)]
 pub struct AudioMetrics {
@@ -47,6 +50,12 @@ pub struct DataRaw {
 }
 
 #[derive(Serialize, Clone, Default)]
+pub struct DataProcessed {
+    pub rrs: Vec<f32>,
+    pub crs: Vec<f32>,
+}
+
+#[derive(Serialize, Clone, Default)]
 pub struct Performance {
     pub cpu_percent: f32,
     pub mem_percent: f32,
@@ -65,6 +74,7 @@ pub struct SessionSchema {
     pub initTimestamp: String,
     pub finishTimestamp: String,
     pub dataRaw: DataRaw,
+    pub dataProcessed: DataProcessed,
     pub measures: Measures,
     pub performance: Option<Performance>,
 }
@@ -125,22 +135,34 @@ impl Storage {
     }
 
     pub fn save_session(mut session: SessionSchema, path: PathBuf, sys: &mut System) {
-        // 1. Procesar Aceleración (RRS)
+        // 1. Extraer ejes de aceleración
         let gx: Vec<f32> = session.dataRaw.acceleration.iter().map(|a| a.measure[0]).collect();
         let gy: Vec<f32> = session.dataRaw.acceleration.iter().map(|a| a.measure[1]).collect();
         let gz: Vec<f32> = session.dataRaw.acceleration.iter().map(|a| a.measure[2]).collect();
 
-        let gx_f = Self::apply_iir(&gx, &B_RRS, &A_RRS);
-        let gy_f = Self::apply_iir(&gy, &B_RRS, &A_RRS);
-        let gz_f = Self::apply_iir(&gz, &B_RRS, &A_RRS);
+        // 2. Procesar RRS (Respiración)
+        let gx_f_rrs = Self::apply_iir(&gx, &B_RRS, &A_RRS);
+        let gy_f_rrs = Self::apply_iir(&gy, &B_RRS, &A_RRS);
+        let gz_f_rrs = Self::apply_iir(&gz, &B_RRS, &A_RRS);
 
-        let rrs: Vec<f32> = gx_f.iter().zip(gy_f.iter()).zip(gz_f.iter())
+        session.dataProcessed.rrs = gx_f_rrs.iter().zip(gy_f_rrs.iter()).zip(gz_f_rrs.iter())
             .map(|((x, y), z)| 0.7 * x + 0.22 * y + 0.0775 * z)
             .collect();
 
-        session.measures.respiratory_rate = Self::calculate_resp_rate(&rrs, 20.0);
+        // 3. Procesar CRS (Cardíaco)
+        let gx_f_crs = Self::apply_iir(&gx, &B_CRS, &A_CRS);
+        let gy_f_crs = Self::apply_iir(&gy, &B_CRS, &A_CRS);
+        let gz_f_crs = Self::apply_iir(&gz, &B_CRS, &A_CRS);
 
-        // 2. Performance (sysinfo v0.30)
+        session.dataProcessed.crs = gx_f_crs.iter().zip(gy_f_crs.iter()).zip(gz_f_crs.iter())
+            .map(|((x, y), z)| 0.54633 * x + 0.31161 * y + 0.15108 * z)
+            .collect();
+
+        // 4. Calcular Medidas finales
+        session.measures.respiratory_rate = Self::calculate_resp_rate(&session.dataProcessed.rrs, 20.0);
+        // (Heart rate por implementar detección de picos)
+
+        // 5. Performance del Sistema (sysinfo v0.30)
         sys.refresh_cpu_usage();
         sys.refresh_memory();
         
@@ -149,7 +171,7 @@ impl Storage {
             mem_percent: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
         });
 
-        // 3. Guardar JSON
+        // 6. Guardar archivo JSON
         if let Ok(file) = fs::File::create(path) {
             let _ = serde_json::to_writer_pretty(file, &session);
         }
