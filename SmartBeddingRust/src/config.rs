@@ -11,6 +11,9 @@ pub struct SystemConfig {
     pub pressure_trigger_ms: u64,
     pub pressure_threshold: u16,
     pub pressure_matrix_visualization:bool,
+
+    pub environment_period_ms: u64,
+    pub environment_trigger_ms: u64,
     
 }
 
@@ -27,5 +30,8 @@ pub const CONFIG: SystemConfig = SystemConfig {
     pressure_trigger_ms: 1000,
     pressure_threshold: 100,
     pressure_matrix_visualization: false,
+
+    environment_period_ms: 10000,
+    environment_trigger_ms: 20000,
 
 };
