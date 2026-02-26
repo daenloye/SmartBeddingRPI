@@ -41,12 +41,17 @@ pub struct DataRaw {
     pub environment: Vec<EnvironmentSample>,
 }
 
+#[derive(Serialize, Clone, Default)]
+pub struct Measures {
+    pub audio: Option<AudioMetrics>,
+}
+
 #[derive(Serialize)]
 pub struct SessionSchema {
     pub initTimestamp: String,
     pub finishTimestamp: String,
     pub dataRaw: DataRaw,
-    pub audioMetrics: Option<AudioMetrics>,
+    pub measures: Measures,
 }
 
 pub struct Storage;

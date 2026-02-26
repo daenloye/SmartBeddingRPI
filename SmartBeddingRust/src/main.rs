@@ -5,10 +5,9 @@ mod acceleration;
 mod environment;
 mod audio;
 
-use storage::{DataRaw, SessionSchema, AccelSample, PressureSample, Storage, AudioMetrics};
+use storage::{DataRaw, SessionSchema, AccelSample, PressureSample, Storage, AudioMetrics, Measures};
 use pressure::PressureMatrix;
 use acceleration::AccelerationModule;
-use environment::EnvironmentModule;
 use audio::AudioModule;
 use rppal::spi::{Bus, SlaveSelect};
 use rppal::i2c::I2c;
@@ -51,7 +50,7 @@ async fn main() {
         while let Some(mut session) = rx_sensors.blocking_recv() {
             // Sincronización: Esperamos las métricas del minuto
             if let Some(metrics) = rx_audio.blocking_recv() {
-                session.audioMetrics = Some(metrics);
+                session.measures.audio = Some(metrics);
             }
 
             let path = dir_clone.join(format!("reg_{}.json", file_count));
@@ -114,7 +113,7 @@ async fn main() {
                 initTimestamp: init_ts.clone(),
                 finishTimestamp: finish_ts.clone(),
                 dataRaw: std::mem::take(&mut current_data),
-                audioMetrics: None,
+                measures: Measures::default(),
             };
 
             let _ = tx_sensors.try_send(session);
