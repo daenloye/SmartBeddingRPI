@@ -33,6 +33,7 @@ async fn main() {
 
     let (pressure_tx, mut pressure_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(20);
     let (accel_tx, mut accel_rx) = mpsc::channel::<(String, [f32; 6])>(100);
+    let (env_tx, mut env_rx) = mpsc::channel::<(String, f32, f32)>(5);
     let (visual_tx, mut visual_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
 
     // --- HILO 1: HARDWARE PRESIÓN (Independiente) ---
@@ -53,6 +54,11 @@ async fn main() {
                 }
                 Some((ts, data)) = accel_rx.recv() => {
                     if CONFIG.storage_enabled { storage.add_accel_sample(ts, data); }
+                }
+                Some((ts, t, h)) = env_rx.recv() => {
+                    if CONFIG.storage_enabled {
+                        storage.add_env_sample(ts, t, h);
+                    }
                 }
             }
         }
@@ -118,10 +124,11 @@ async fn main() {
         // 3. Ambiente (Cada 20s / 400 ticks)
         if ticks_count % 400 == 0 {
             let env = Arc::clone(&env_module);
+            let tx_e = env_tx.clone();
             let ts_e = timestamp.clone();
             tokio::spawn(async move {
                 let (t, h) = env.get_latest_avg();
-                println!("[MASTER-ENV] [{}] T: {:.2}°C | H: {:.2}%", ts_e, t, h);
+                let _ = tx_e.send((ts_e, t, h)).await;
             });
         }
     }

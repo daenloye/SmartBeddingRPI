@@ -15,10 +15,18 @@ pub struct AccelSample {
     pub data: [f32; 6], // [gx, gy, gz, ax, ay, az]
 }
 
+// NUEVO: Estructura para sensores ambientales (0.05Hz / Cada 20s)
+pub struct EnvironmentSample {
+    pub timestamp: String,
+    pub temperature: f32,
+    pub humidity: f32,
+}
+
 pub struct Storage {
     pub current_dir: PathBuf,
     pub pressure_buffer: Vec<PressureSample>,
-    pub accel_buffer: Vec<AccelSample>, // Nuevo vector
+    pub accel_buffer: Vec<AccelSample>,
+    pub env_buffer: Vec<EnvironmentSample>, // Nuevo buffer
 }
 
 impl Storage {
@@ -56,16 +64,14 @@ impl Storage {
 
         Self {
             current_dir: new_path,
-            // 100 muestras de presión = 100 segundos
             pressure_buffer: Vec::with_capacity(100), 
-            // 2000 muestras de accel = 100 segundos a 20Hz
             accel_buffer: Vec::with_capacity(2000), 
+            env_buffer: Vec::with_capacity(20), // Capacidad para ~7 minutos de ambiente
         }
     }
 
-    /// Guarda la matriz de presión (frecuencia lenta)
     pub fn add_pressure_sample(&mut self, timestamp: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
-        let ts_clone = timestamp.clone(); // Para el print
+        let ts_clone = timestamp.clone();
         self.pressure_buffer.push(PressureSample { timestamp, matrix });
 
         if CONFIG.debug_mode {
@@ -73,14 +79,27 @@ impl Storage {
         }
     }
 
-    /// Guarda los datos del acelerómetro (frecuencia rápida)
     pub fn add_accel_sample(&mut self, timestamp: String, data: [f32; 6]) {
-        let ts_clone = timestamp.clone(); // Para el print
+        let ts_clone = timestamp.clone();
         self.accel_buffer.push(AccelSample { timestamp, data });
 
-        // Imprimimos solo cada 20 para ver la sincronización por segundo
         if CONFIG.debug_mode && self.accel_buffer.len() % 20 == 0 {
             println!("[STORAGE-A] [{}] Buffer accel: {}", ts_clone, self.accel_buffer.len());
+        }
+    }
+
+    // NUEVO: Método para añadir datos ambientales
+    pub fn add_env_sample(&mut self, timestamp: String, temperature: f32, humidity: f32) {
+        let ts_clone = timestamp.clone();
+        self.env_buffer.push(EnvironmentSample { 
+            timestamp, 
+            temperature, 
+            humidity 
+        });
+
+        if CONFIG.debug_mode {
+            println!("[STORAGE-E] [{}] Buffer ambiente: {} (T: {:.2}, H: {:.2})", 
+                     ts_clone, self.env_buffer.len(), temperature, humidity);
         }
     }
 }
