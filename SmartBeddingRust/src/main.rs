@@ -19,100 +19,96 @@ use chrono::Local;
 
 #[tokio::main]
 async fn main() {
-    // 1. Inicialización de Almacenamiento y Módulos
     let mut storage = Storage::init();
-    
-    // Módulo de aceleración (Inicia su propio hilo nativo a 40Hz internamente)
     let acc_module = Arc::new(AccelerationModule::new(Bus::Spi0, SlaveSelect::Ss0));
-    
-    // Módulo de presión (Hardware I2C)
     let pressure_sensor = Arc::new(RwLock::new(
-        PressureMatrix::init().expect("[PRESSURE] Error crítico: No se pudo inicializar hardware I2C")
+        PressureMatrix::init().expect("[PRESSURE] Error crítico")
     ));
 
-    // Canales de comunicación hacia el Storage
     let (pressure_tx, mut pressure_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(10);
     let (accel_tx, mut accel_rx) = mpsc::channel::<(String, [f32; 6])>(100);
+    
+    // Canal de visualización
+    let (visual_tx, mut visual_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
 
-    // --- HILO 1: ESCANEO HARDWARE PRESIÓN (Hilo Nativo) ---
-    // Este hilo corre a la máxima velocidad permitida por el bus I2C para actualizar datos
+    // --- HILO 1: HARDWARE PRESIÓN ---
     let sensor_hw = Arc::clone(&pressure_sensor);
     thread::spawn(move || {
         loop {
-            if let Ok(mut s) = sensor_hw.write() { 
-                s.scan_and_update(); 
-            }
+            if let Ok(mut s) = sensor_hw.write() { s.scan_and_update(); }
             thread::sleep(Duration::from_millis(CONFIG.scan_delay_ms));
         }
     });
 
-    // --- HILO 2: CONSUMIDOR ÚNICO DE STORAGE (Tokio Task) ---
-    // Centraliza las escrituras en los vectores de memoria
+    // --- HILO 2: STORAGE ---
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 Some((ts, matriz)) = pressure_rx.recv() => {
-                    if CONFIG.storage_enabled {
-                        storage.add_pressure_sample(ts, matriz);
-                    }
+                    if CONFIG.storage_enabled { storage.add_pressure_sample(ts, matriz); }
                 }
                 Some((ts, data)) = accel_rx.recv() => {
-                    if CONFIG.storage_enabled {
-                        storage.add_accel_sample(ts, data);
-                    }
+                    if CONFIG.storage_enabled { storage.add_accel_sample(ts, data); }
                 }
             }
         }
     });
 
-    // --- HILO 3: METRÓNOMO MAESTRO (Sincronización Total) ---
-    // Orquestador: decide cuándo se toma la foto de cada sensor
-    let mut ticker = interval(Duration::from_millis(CONFIG.acceleration_trigger_ms)); // 50ms = 20Hz
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    
-    let mut ticks_count: u64 = 0;
+    // --- HILO: RENDERIZADOR (Solo si está habilitado) ---
+    if CONFIG.pressure_matrix_visualization {
+        tokio::spawn(async move {
+            println!("[SISTEMA] Visualización de matriz ACTIVADA.");
+            while let Some((ts, matriz)) = visual_rx.recv().await {
+                renderizar_matriz(ts, matriz);
+            }
+        });
+    } else {
+        println!("[SISTEMA] Visualización de matriz DESACTIVADA (Modo ahorro/log).");
+    }
 
-    println!("[SISTEMA] Iniciando captura sincronizada...");
+    // --- HILO 3: METRÓNOMO MAESTRO ---
+    let mut ticker = interval(Duration::from_millis(CONFIG.acceleration_trigger_ms)); 
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut ticks_count: u64 = 0;
 
     loop {
         ticker.tick().await;
-        
-        // Generamos un ÚNICO timestamp para este instante de tiempo
         let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
         
-        // A. CAPTURA ACELERACIÓN (Siempre a 20Hz)
+        // A. ACELERACIÓN
         let a_data = acc_module.get_latest_data();
         let _ = accel_tx.send((timestamp.clone(), a_data)).await;
 
-        // B. CAPTURA PRESIÓN (Cada 1 segundo / 20 ticks)
+        // B. PRESIÓN
         ticks_count += 1;
         if ticks_count % 20 == 0 {
             if let Ok(s) = pressure_sensor.read() {
                 let p_data = s.buffers[s.latest_idx];
-                // Enviamos con el MISMO timestamp que la muestra de aceleración
+                
+                // Enviar a Storage
                 let _ = pressure_tx.send((timestamp.clone(), p_data)).await;
-            }
-            
-            if CONFIG.debug_mode {
-                // Log de latido del sistema
-                println!("[MASTER] [{}] Sync OK - Accel Ticks: {}", timestamp, ticks_count);
+                
+                // Enviar a Visualización (solo si el config lo permite)
+                if CONFIG.pressure_matrix_visualization {
+                    let _ = visual_tx.try_send((timestamp.clone(), p_data));
+                }
             }
         }
     }
 }
 
-// --- FUNCIÓN DE RENDERIZADO (Para debugear visualmente la matriz) ---
-fn _renderizar_matriz(ts: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
+fn renderizar_matriz(ts: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
     let mut output = String::with_capacity(2048);
-    output.push_str("\x1B[2J\x1B[H"); // Limpiar consola
-    output.push_str(&format!("─── MUESTRA: {} (Threshold: {}) ───\n\n", ts, CONFIG.pressure_threshold));
+    // Limpieza de terminal usando secuencias ANSI
+    output.push_str("\x1B[2J\x1B[H"); 
+    output.push_str(&format!("─── MATRIZ EN TIEMPO REAL: {} ───\n\n", ts));
 
     for row in matrix.iter() {
         for &val in row.iter() {
             if val > CONFIG.pressure_threshold {
-                output.push_str(&format!("\x1B[1;32m{:5}\x1B[0m ", val)); // Verde si pasa el umbral
+                output.push_str(&format!("\x1B[1;32m{:4}\x1B[0m ", val)); // Verde si activo
             } else {
-                output.push_str(&format!("{:5} ", val));
+                output.push_str(&format!("{:4} ", val));
             }
         }
         output.push_str("\n");

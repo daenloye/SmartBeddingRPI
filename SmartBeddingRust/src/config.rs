@@ -1,21 +1,31 @@
 pub struct SystemConfig {
     pub debug_mode: bool,
+
     pub storage_enabled: bool,
-    pub scan_delay_ms: u64,
+    pub storage_path: &'static str,
+
     pub acceleration_period_ms: u64,
     pub acceleration_trigger_ms: u64,
-    pub pressure_trigger_ms: u64,     // <--- Solo añadimos esto
+
+    pub scan_delay_ms: u64,
+    pub pressure_trigger_ms: u64,
     pub pressure_threshold: u16,
-    pub storage_path: &'static str,
+    pub pressure_matrix_visualization:bool,
+    
 }
 
 pub const CONFIG: SystemConfig = SystemConfig {
-    debug_mode: true,            // Lo pongo en false para que no te sature el "Ocupado"
+    debug_mode: true,
+
     storage_enabled: true,
-    scan_delay_ms: 25,
-    acceleration_period_ms: 25,
-    acceleration_trigger_ms: 50,          
-    pressure_trigger_ms: 1000,        // <--- Aquí configuras cada cuánto quieres ver la matriz (ej. 1000ms)
-    pressure_threshold: 100,
     storage_path: "./data_storage",
+
+    acceleration_period_ms: 25,
+    acceleration_trigger_ms: 50,  
+
+    scan_delay_ms: 25,
+    pressure_trigger_ms: 1000,
+    pressure_threshold: 100,
+    pressure_matrix_visualization: false,
+
 };
