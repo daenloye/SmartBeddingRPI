@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio::time::{interval, MissedTickBehavior};
+use tokio::signal;
 use chrono::Local;
 
 #[tokio::main]
@@ -31,12 +32,12 @@ async fn main() {
         PressureMatrix::init(Arc::clone(&shared_i2c)).expect("Pressure Fail")
     ));
 
-    let (pressure_tx, mut pressure_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(20);
-    let (accel_tx, mut accel_rx) = mpsc::channel::<(String, [f32; 6])>(100);
-    let (env_tx, mut env_rx) = mpsc::channel::<(String, f32, f32)>(5);
-    let (visual_tx, mut visual_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
+    let (pressure_tx, mut pressure_rx) = mpsc::channel::<(String, Arc<[[u16; COL_SIZE]; ROW_SIZE]>)>(100);
+    let (accel_tx, mut accel_rx) = mpsc::channel::<(String, [f32; 6])>(1300);
+    let (env_tx, mut env_rx) = mpsc::channel::<(String, f32, f32)>(10);
+    let (control_tx, mut control_rx) = mpsc::channel::<String>(10);
 
-    // --- HILO 1: HARDWARE PRESIÓN (Independiente) ---
+    // HILO HARDWARE: No lo tocamos, corre en background
     let sensor_hw = Arc::clone(&pressure_sensor);
     thread::spawn(move || {
         loop {
@@ -45,108 +46,74 @@ async fn main() {
         }
     });
 
-    // --- HILO 2: CONSUMIDOR STORAGE ---
+    // CONSUMIDOR DE AUDITORÍA Y STORAGE (Aquí se hace el trabajo sucio del log)
     tokio::spawn(async move {
+        let mut p_count = 0;
+        let mut a_count = 0;
         loop {
             tokio::select! {
-                Some((ts, matriz)) = pressure_rx.recv() => {
-                    if CONFIG.storage_enabled { storage.add_pressure_sample(ts, matriz); }
+                Some(cmd) = control_rx.recv() => {
+                    if cmd == "FLUSH" { 
+                        storage.flush_chunk(); 
+                        println!("\n[{}] --- ARCHIVO GUARDADO (P: {}, A: {}) ---", Local::now().format("%H:%M:%S%.3f"), p_count, a_count);
+                        p_count = 0; a_count = 0;
+                    }
+                    else if cmd == "SHUTDOWN" { storage.flush_chunk(); std::process::exit(0); }
                 }
-                Some((ts, data)) = accel_rx.recv() => {
-                    if CONFIG.storage_enabled { storage.add_accel_sample(ts, data); }
+                Some((ts, m_ptr)) = pressure_rx.recv() => {
+                    p_count += 1;
+                    storage.add_pressure_sample(ts.clone(), m_ptr);
+                    // Imprimimos la auditoría aquí para NO frenar el metrónomo
+                    println!("[{}] AUDITORÍA -> P: {:>2} | A: {:>4}", ts, p_count, a_count);
+                }
+                Some((ts, d)) = accel_rx.recv() => {
+                    a_count += 1;
+                    storage.add_accel_sample(ts, d);
                 }
                 Some((ts, t, h)) = env_rx.recv() => {
-                    if CONFIG.storage_enabled {
-                        storage.add_env_sample(ts, t, h);
-                    }
+                    storage.add_env_sample(ts, t, h);
                 }
             }
         }
     });
 
-    // --- HILO: RENDERIZADOR ---
-    if CONFIG.pressure_matrix_visualization {
-        tokio::spawn(async move {
-            while let Some((ts, matriz)) = visual_rx.recv().await {
-                renderizar_matriz(ts, matriz);
-            }
-        });
-    }
-
-    // --- HILO 3: METRÓNOMO MAESTRO (Reloj atómico) ---
-    let mut ticker = interval(Duration::from_millis(CONFIG.acceleration_trigger_ms));
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut ticker = interval(Duration::from_millis(50)); 
+    // BURST: Si el sistema se traba, dispara los ticks acumulados rápido para recuperar
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Burst);
+    
     let mut ticks_count: u64 = 0;
-
-    println!("[SISTEMA] Iniciando con parches de seguridad para RwLock...");
+    println!("[SISTEMA] Metrónomo iniciado. Prioridad de tiempo activa.");
 
     loop {
         ticker.tick().await;
-        let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
-
-        // 1. Aceleración
-        let acc = Arc::clone(&acc_module);
-        let tx_a = accel_tx.clone();
-        let ts_a = timestamp.clone();
-        tokio::spawn(async move {
-            let data = acc.get_latest_data();
-            let _ = tx_a.send((ts_a, data)).await;
-        });
-
+        let ts = Local::now().format("%H:%M:%S%.3f").to_string();
         ticks_count += 1;
 
-        // 2. Presión (Cada 1s / 20 ticks)
-        if ticks_count % 20 == 0 {
-            let p_sensor = Arc::clone(&pressure_sensor);
-            let tx_p = pressure_tx.clone();
-            let tx_v = visual_tx.clone();
-            let ts_p = timestamp.clone();
-            let viz_enabled = CONFIG.pressure_matrix_visualization;
+        // 1. Aceleración (20Hz) - Clonar Arc es barato, enviar por canal es rápido
+        let _ = accel_tx.try_send((ts.clone(), acc_module.get_latest_data()));
 
-            tokio::spawn(async move {
-                // EXPLICACIÓN: Obtenemos el dato y soltamos el candado INMEDIATAMENTE
-                let data_opt = if let Ok(s) = p_sensor.read() {
-                    Some(s.buffers[s.latest_idx])
-                } else {
-                    None
-                };
-
-                // Ahora que el candado está suelto, podemos hacer .await con seguridad
-                if let Some(data) = data_opt {
-                    let _ = tx_p.send((ts_p.clone(), data)).await;
-                    if viz_enabled {
-                        let _ = tx_v.try_send((ts_p, data));
-                    }
-                }
-            });
-        }
-
-        // 3. Ambiente (Cada 20s / 400 ticks)
+        // 2. Ambiente (Cada 20s)
         if ticks_count % 400 == 0 {
-            let env = Arc::clone(&env_module);
+            let e_m = Arc::clone(&env_module);
             let tx_e = env_tx.clone();
-            let ts_e = timestamp.clone();
+            let ts_e = ts.clone();
             tokio::spawn(async move {
-                let (t, h) = env.get_latest_avg();
+                let (t, h) = e_m.get_latest_avg();
                 let _ = tx_e.send((ts_e, t, h)).await;
             });
         }
-    }
-}
 
-fn renderizar_matriz(ts: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
-    let mut output = String::with_capacity(2048);
-    output.push_str("\x1B[2J\x1B[H"); 
-    output.push_str(&format!("─── MATRIZ: {} ───\n\n", ts));
-    for row in matrix.iter() {
-        for &val in row.iter() {
-            if val > CONFIG.pressure_threshold {
-                output.push_str(&format!("\x1B[1;32m{:4}\x1B[0m ", val));
-            } else {
-                output.push_str(&format!("{:4} ", val));
+        // 3. Presión (Cada 1s)
+        if ticks_count % 20 == 0 {
+            if let Ok(s) = pressure_sensor.read() {
+                let ptr = Arc::new(s.buffers[s.latest_idx]);
+                let _ = pressure_tx.try_send((ts.clone(), ptr));
+            }
+
+            if ticks_count >= 1200 {
+                let _ = control_tx.send("FLUSH".to_string()).await;
+                ticks_count = 0;
             }
         }
-        output.push_str("\n");
     }
-    print!("{}", output);
 }

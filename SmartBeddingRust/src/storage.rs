@@ -1,105 +1,125 @@
 use std::fs;
+use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use serde::Serialize;
 use crate::config::CONFIG;
 use crate::pressure::{COL_SIZE, ROW_SIZE};
+use chrono::Local;
 
-// Estructura para la matriz de presión (1Hz)
+#[derive(Serialize, Clone)]
 pub struct PressureSample {
     pub timestamp: String,
-    pub matrix: [[u16; COL_SIZE]; ROW_SIZE],
+    pub measure: Arc<[[u16; COL_SIZE]; ROW_SIZE]>,
 }
 
-// Estructura para la aceleración (20Hz)
+#[derive(Serialize, Clone)]
 pub struct AccelSample {
     pub timestamp: String,
-    pub data: [f32; 6], // [gx, gy, gz, ax, ay, az]
+    pub measure: [f32; 6],
 }
 
-// NUEVO: Estructura para sensores ambientales (0.05Hz / Cada 20s)
+#[derive(Serialize, Clone)]
 pub struct EnvironmentSample {
     pub timestamp: String,
     pub temperature: f32,
     pub humidity: f32,
 }
 
+#[derive(Serialize, Clone)]
+pub struct DataRaw {
+    pub pressure: Vec<PressureSample>,
+    pub acceleration: Vec<AccelSample>,
+    pub environment: Vec<EnvironmentSample>,
+}
+
+#[derive(Serialize)]
+pub struct SessionSchema {
+    #[serde(rename = "initTimestamp")]
+    pub init_timestamp: String,
+    #[serde(rename = "finishTimestamp")]
+    pub finish_timestamp: String,
+    #[serde(rename = "dataRaw")]
+    pub data_raw: DataRaw,
+}
+
 pub struct Storage {
     pub current_dir: PathBuf,
-    pub pressure_buffer: Vec<PressureSample>,
-    pub accel_buffer: Vec<AccelSample>,
-    pub env_buffer: Vec<EnvironmentSample>, // Nuevo buffer
+    pub init_ts: String,
+    pub data: DataRaw,
+    pub reg_count: u32,
 }
 
 impl Storage {
     pub fn init() -> Self {
         let base_path = Path::new(CONFIG.storage_path);
         if !base_path.exists() {
-            fs::create_dir_all(base_path).expect("[STORAGE] No se pudo crear la carpeta base");
+            fs::create_dir_all(base_path).expect("Error carpeta base");
         }
 
         let mut max_index: u32 = 0;
         if let Ok(entries) = fs::read_dir(base_path) {
             for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(os_name) = path.file_name() {
-                        if let Some(name_str) = os_name.to_str() {
-                            if let Some(stripped) = name_str.strip_prefix("register_") {
-                                if let Ok(n) = stripped.parse::<u32>() {
-                                    if n > max_index { max_index = n; }
-                                }
-                            }
-                        }
+                if let Some(name) = entry.file_name().to_str() {
+                    if let Some(s) = name.strip_prefix("register_") {
+                        if let Ok(n) = s.parse::<u32>() { if n > max_index { max_index = n; } }
                     }
                 }
             }
         }
 
-        let new_folder_name = format!("register_{}", max_index + 1);
-        let new_path = base_path.join(new_folder_name);
-        fs::create_dir(&new_path).expect("[STORAGE] No se pudo crear la carpeta de registro");
-
-        if CONFIG.debug_mode {
-            println!("[STORAGE] Sesión iniciada y buffers listos en memoria.");
-        }
+        let new_path = base_path.join(format!("register_{}", max_index + 1));
+        fs::create_dir(&new_path).expect("Error carpeta sesion");
 
         Self {
             current_dir: new_path,
-            pressure_buffer: Vec::with_capacity(100), 
-            accel_buffer: Vec::with_capacity(2000), 
-            env_buffer: Vec::with_capacity(20), // Capacidad para ~7 minutos de ambiente
+            init_ts: Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            data: DataRaw {
+                pressure: Vec::with_capacity(65),
+                acceleration: Vec::with_capacity(1250),
+                environment: Vec::with_capacity(10),
+            },
+            reg_count: 1,
         }
     }
 
-    pub fn add_pressure_sample(&mut self, timestamp: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
-        let ts_clone = timestamp.clone();
-        self.pressure_buffer.push(PressureSample { timestamp, matrix });
-
-        if CONFIG.debug_mode {
-            println!("[STORAGE-P] [{}] Buffer presión: {}", ts_clone, self.pressure_buffer.len());
-        }
+    pub fn add_pressure_sample(&mut self, timestamp: String, matrix_ptr: Arc<[[u16; COL_SIZE]; ROW_SIZE]>) {
+        self.data.pressure.push(PressureSample { timestamp, measure: matrix_ptr });
     }
 
     pub fn add_accel_sample(&mut self, timestamp: String, data: [f32; 6]) {
-        let ts_clone = timestamp.clone();
-        self.accel_buffer.push(AccelSample { timestamp, data });
-
-        if CONFIG.debug_mode && self.accel_buffer.len() % 20 == 0 {
-            println!("[STORAGE-A] [{}] Buffer accel: {}", ts_clone, self.accel_buffer.len());
-        }
+        self.data.acceleration.push(AccelSample { timestamp, measure: data });
     }
 
-    // NUEVO: Método para añadir datos ambientales
     pub fn add_env_sample(&mut self, timestamp: String, temperature: f32, humidity: f32) {
-        let ts_clone = timestamp.clone();
-        self.env_buffer.push(EnvironmentSample { 
-            timestamp, 
-            temperature, 
-            humidity 
-        });
+        self.data.environment.push(EnvironmentSample { timestamp, temperature, humidity });
+    }
 
-        if CONFIG.debug_mode {
-            println!("[STORAGE-E] [{}] Buffer ambiente: {} (T: {:.2}, H: {:.2})", 
-                     ts_clone, self.env_buffer.len(), temperature, humidity);
-        }
+    pub fn flush_chunk(&mut self) {
+        let p_len = self.data.pressure.len();
+        let a_len = self.data.acceleration.len();
+        if p_len == 0 && a_len == 0 { return; }
+
+        let finish_ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+        let chunk_data = DataRaw {
+            pressure: std::mem::take(&mut self.data.pressure),
+            acceleration: std::mem::take(&mut self.data.acceleration),
+            environment: std::mem::take(&mut self.data.environment),
+        };
+
+        let session = SessionSchema {
+            init_timestamp: self.init_ts.clone(),
+            finish_timestamp: finish_ts.clone(),
+            data_raw: chunk_data,
+        };
+
+        let file_path = self.current_dir.join(format!("reg_{}.json", self.reg_count));
+        let file = File::create(&file_path).unwrap();
+        serde_json::to_writer_pretty(file, &session).unwrap();
+
+        println!("[STORAGE] Archivo escrito: reg_{}.json (P: {}, A: {})", self.reg_count, p_len, a_len);
+
+        self.reg_count += 1;
+        self.init_ts = finish_ts;
     }
 }

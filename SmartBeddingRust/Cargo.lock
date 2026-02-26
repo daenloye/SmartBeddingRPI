@@ -10,6 +10,8 @@ dependencies = [
  "chrono",
  "futures-util",
  "rppal",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
