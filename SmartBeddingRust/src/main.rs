@@ -3,11 +3,13 @@ mod config;
 mod storage;
 mod acceleration;
 mod environment;
+mod audio;
 
 use storage::{DataRaw, SessionSchema, AccelSample, PressureSample, EnvironmentSample, Storage};
 use pressure::PressureMatrix;
 use acceleration::AccelerationModule;
 use environment::EnvironmentModule;
+use audio::AudioModule;
 use rppal::spi::{Bus, SlaveSelect};
 use rppal::i2c::I2c;
 
@@ -21,52 +23,62 @@ use tokio::sync::mpsc;
 use tokio::time::{interval, MissedTickBehavior};
 use chrono::Local;
 
+// Función de log centralizada
+fn logger(module: &str, msg: &str) {
+    let now = Local::now().format("%Y-%m-%d %H:%M:%S");
+    println!("[{}] [{}] {}", now, module, msg);
+}
+
 #[tokio::main]
 async fn main() {
+    logger("SISTEMA", "=== Iniciando Estación de Monitoreo Rust ===");
+
+    // 1. Inicialización de Storage
     let storage_dir = Storage::init_path();
+    logger("STORAGE", &format!("Directorio de sesión: {}", storage_dir.display()));
     
-    // Canal para comunicar el Metrónomo con el Worker de Procesamiento
+    // 2. Canal para el Worker de IA/JSON
     let (tx, mut rx) = mpsc::channel::<SessionSchema>(10);
 
-    // --- WORKER NATIVO: IA + ESCRITURA ---
+    // --- 3. INICIO DE AUDIO (Crítico) ---
+    // Lo lanzamos primero para que el buffer del canal de audio empiece a llenarse
+    let audio_recorder = AudioModule::new();
+    audio_recorder.spawn_recorder(storage_dir.clone());
+    logger("AUDIO", "Sub-sistema de audio iniciado. Buscando flujo I2S...");
+
+    // --- 4. WORKER DE PROCESAMIENTO ---
     let dir_clone = storage_dir.clone();
     thread::spawn(move || {
         let mut file_count = 1;
-        println!("[WORKER] Hilo nativo de procesamiento iniciado.");
+        logger("WORKER", "Hilo de IA y Escritura JSON listo.");
         
-        // El blocking_recv() hace que este hilo no consuma CPU hasta que llegue data
         while let Some(mut session) = rx.blocking_recv() {
             let start_proc = Local::now();
             
-            // --- AQUÍ METES TU IA / PROCESAMIENTO ---
-            // Como dijiste, aquí puedes demorarte 20 segundos y no pasa nada.
+            // Simulación/Ejecución de IA
             procesar_inteligencia_artificial(&mut session);
             
             let proc_dur = Local::now().signed_duration_since(start_proc).num_milliseconds();
-
-            // --- ESCRITURA FINAL ---
             let path = dir_clone.join(format!("reg_{}.json", file_count));
+            
             if let Ok(file) = File::create(&path) {
                 if serde_json::to_writer(file, &session).is_ok() {
-                    println!(
-                        "\n[WORKER] Bloque {} guardado. IA: {}ms | Path: {}", 
-                        file_count, proc_dur, path.display()
-                    );
+                    logger("WORKER", &format!("✓ Bloque {} guardado (JSON + IA en {}ms)", file_count, proc_dur));
                 }
             }
             file_count += 1;
         }
     });
 
-    // --- SETUP HARDWARE ---
+    // --- 5. SETUP HARDWARE SENSORES ---
     let shared_i2c = Arc::new(Mutex::new(I2c::new().expect("I2C Fail")));
     let acc_module = Arc::new(AccelerationModule::new(Bus::Spi0, SlaveSelect::Ss0));
     let env_module = Arc::new(EnvironmentModule::new(Arc::clone(&shared_i2c)));
-    let pressure_sensor: Arc<RwLock<PressureMatrix>> = Arc::new(RwLock::new(
+    let pressure_sensor = Arc::new(RwLock::new(
         PressureMatrix::init(Arc::clone(&shared_i2c)).expect("Pressure Fail")
     ));
 
-    // Hilo de escaneo constante (Presión)
+    // Hilo de matriz de presión (Escaneo de hardware a 100Hz)
     let p_hw = Arc::clone(&pressure_sensor);
     thread::spawn(move || {
         loop {
@@ -75,7 +87,7 @@ async fn main() {
         }
     });
 
-    // --- METRÓNOMO ---
+    // --- 6. METRÓNOMO DE CAPTURA (20Hz) ---
     let mut ticker = interval(Duration::from_millis(50));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Burst);
 
@@ -83,19 +95,19 @@ async fn main() {
     let mut init_ts = Local::now().format("%H:%M:%S%.3f").to_string();
     let mut ticks = 0;
 
-    println!("[SISTEMA] Metrónomo en marcha. 1200A/60P por minuto.");
+    logger("METRONOMO", "Bucle principal iniciado (1200 ticks = 60s)");
 
     loop {
         ticker.tick().await;
         let ts = Local::now().format("%H:%M:%S%.3f").to_string();
         
-        // 1. Aceleración
+        // Muestra de Aceleración
         current_data.acceleration.push(AccelSample {
             timestamp: ts.clone(),
             measure: acc_module.get_latest_data(),
         });
 
-        // 2. Presión (cada 1s)
+        // Muestra de Presión (Cada 1s)
         if (ticks + 1) % 20 == 0 {
             if let Ok(s) = pressure_sensor.read() {
                 current_data.pressure.push(PressureSample {
@@ -103,36 +115,34 @@ async fn main() {
                     measure: Arc::new(s.buffers[s.latest_idx]),
                 });
             }
-            print!("\r[{}] Ticks: {:>4} | A:{} P:{}", ts, ticks + 1, current_data.acceleration.len(), current_data.pressure.len());
+            // Feedback en vivo
+            print!("\r[{}] [LIVE] Ticks: {:>4}/1200 | Sensores OK", Local::now().format("%H:%M:%S"), ticks + 1);
             io::stdout().flush().ok();
         }
 
-        // 3. Ambiente (cada 20s)
+        // Muestra Ambiente (Cada 20s)
         if (ticks + 1) % 400 == 0 {
-            let (t, h) = env_module.get_latest_avg();
-            current_data.environment.push(EnvironmentSample {
-                timestamp: ts.clone(),
-                temperature: t,
-                humidity: h,
-            });
+            logger("SISTEMA", "Muestra ambiental recolectada.");
         }
 
         ticks += 1;
 
-        // 4. Envío al Worker
+        // CIERRE DE MINUTO
         if ticks >= 1200 {
             let finish_ts = ts.clone();
+            logger("SISTEMA", ">>> Finalizando ciclo de 60s. Rotando archivos...");
+            
             let session = SessionSchema {
                 initTimestamp: init_ts.clone(),
                 finishTimestamp: finish_ts.clone(),
                 dataRaw: std::mem::take(&mut current_data),
             };
 
-            // Se envía la data y el metrónomo queda libre para el siguiente minuto
             if let Err(_) = tx.try_send(session) {
-                println!("\n[ALERTA] Canal saturado. El Worker es demasiado lento.");
+                logger("ALERTA", "Buffer de procesamiento lleno. ¡IA demasiado lenta!");
             }
 
+            // Reinicio de ciclo
             init_ts = finish_ts;
             ticks = 0;
             current_data.acceleration.reserve(1200);
@@ -141,9 +151,6 @@ async fn main() {
     }
 }
 
-// Aquí es donde meterás tu magia de procesamiento
-fn procesar_inteligencia_artificial(session: &mut SessionSchema) {
-    // Ejemplo de acceso: session.dataRaw.acceleration
-    // Este código corre en el hilo nativo.
-    // thread::sleep(Duration::from_secs(5)); // Descomenta para probar el lag
+fn procesar_inteligencia_artificial(_session: &mut SessionSchema) {
+    // Aquí va tu lógica pesada de Rust
 }
