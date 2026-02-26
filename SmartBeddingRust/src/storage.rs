@@ -3,16 +3,22 @@ use std::path::{Path, PathBuf};
 use crate::config::CONFIG;
 use crate::pressure::{COL_SIZE, ROW_SIZE};
 
-// Estructura para representar una sola muestra de la cama
+// Estructura para la matriz de presión (1Hz)
 pub struct PressureSample {
     pub timestamp: String,
     pub matrix: [[u16; COL_SIZE]; ROW_SIZE],
 }
 
+// Estructura para la aceleración (20Hz)
+pub struct AccelSample {
+    pub timestamp: String,
+    pub data: [f32; 6], // [gx, gy, gz, ax, ay, az]
+}
+
 pub struct Storage {
     pub current_dir: PathBuf,
-    // Buffer en memoria para almacenar las muestras
     pub pressure_buffer: Vec<PressureSample>,
+    pub accel_buffer: Vec<AccelSample>, // Nuevo vector
 }
 
 impl Storage {
@@ -45,25 +51,36 @@ impl Storage {
         fs::create_dir(&new_path).expect("[STORAGE] No se pudo crear la carpeta de registro");
 
         if CONFIG.debug_mode {
-            println!("[STORAGE] Sesión iniciada y buffer listo en memoria.");
+            println!("[STORAGE] Sesión iniciada y buffers listos en memoria.");
         }
 
         Self {
             current_dir: new_path,
-            pressure_buffer: Vec::with_capacity(100), // Iniciamos con capacidad para 100 muestras para evitar realocaciones constantes
+            // 100 muestras de presión = 100 segundos
+            pressure_buffer: Vec::with_capacity(100), 
+            // 2000 muestras de accel = 100 segundos a 20Hz
+            accel_buffer: Vec::with_capacity(2000), 
         }
     }
 
-    /// Recibe la matriz y el timestamp y los guarda en el vector de memoria
-    pub fn add_sample(&mut self, timestamp: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
-        let sample = PressureSample {
-            timestamp,
-            matrix,
-        };
-        self.pressure_buffer.push(sample);
+    /// Guarda la matriz de presión (frecuencia lenta)
+    pub fn add_pressure_sample(&mut self, timestamp: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
+        let ts_clone = timestamp.clone(); // Para el print
+        self.pressure_buffer.push(PressureSample { timestamp, matrix });
 
         if CONFIG.debug_mode {
-            println!("[STORAGE] Muestra añadida al buffer. Total: {}", self.pressure_buffer.len());
+            println!("[STORAGE-P] [{}] Buffer presión: {}", ts_clone, self.pressure_buffer.len());
+        }
+    }
+
+    /// Guarda los datos del acelerómetro (frecuencia rápida)
+    pub fn add_accel_sample(&mut self, timestamp: String, data: [f32; 6]) {
+        let ts_clone = timestamp.clone(); // Para el print
+        self.accel_buffer.push(AccelSample { timestamp, data });
+
+        // Imprimimos solo cada 20 para ver la sincronización por segundo
+        if CONFIG.debug_mode && self.accel_buffer.len() % 20 == 0 {
+            println!("[STORAGE-A] [{}] Buffer accel: {}", ts_clone, self.accel_buffer.len());
         }
     }
 }
