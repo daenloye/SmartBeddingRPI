@@ -49,28 +49,19 @@ async fn main() {
     });
 
     // --- HILO 3: EL METRÓNOMO (Controlador de flujo) ---
-    // Aquí podrías cambiar Duration::from_secs(1) por una variable en CONFIG si quisieras
-    let mut milis_intervalo = interval(Duration::from_secs(1));
+    // Busca donde creas el intervalo en el loop de main
+    let mut milis_intervalo = interval(Duration::from_millis(CONFIG.main_trigger_ms));
     milis_intervalo.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-    println!(">>> SmartBedding OS ejecutándose...");
-    if CONFIG.storage_enabled {
-        println!(">>> Almacenamiento activo en: {}", CONFIG.storage_path);
-    }
 
     loop {
         milis_intervalo.tick().await;
-        
         let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
         
-        // Usamos try_read para no bloquear el metrónomo si el hardware está escribiendo
-        if let Ok(s) = sensor.try_read() {
+        // Cambiamos try_read por read para que NO de error de "ocupado"
+        // El hardware sigue a su bola, el main solo pide el último buffer listo.
+        if let Ok(s) = sensor.read() {
             let copia = s.buffers[s.latest_idx];
-            
-            // Enviamos al renderizador (y pronto al storage)
             let _ = tx.try_send((timestamp, copia));
-        } else if CONFIG.debug_mode {
-            eprintln!("[DEBUG] El hardware estaba ocupado durante el tick.");
         }
     }
 }
