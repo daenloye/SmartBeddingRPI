@@ -19,27 +19,46 @@ use std::fs::File;
 
 use tokio::sync::mpsc;
 use tokio::time::{interval, MissedTickBehavior};
-use tokio::signal;
 use chrono::Local;
 
 #[tokio::main]
 async fn main() {
     let storage_dir = Storage::init_path();
-    let (file_tx, mut file_rx) = mpsc::channel::<SessionSchema>(15);
+    
+    // Canal para comunicar el Metrónomo con el Worker de Procesamiento
+    let (tx, mut rx) = mpsc::channel::<SessionSchema>(10);
 
-    // HILO DE DISCO (Escritura background)
+    // --- WORKER NATIVO: IA + ESCRITURA ---
     let dir_clone = storage_dir.clone();
-    tokio::spawn(async move {
-        let mut reg_count = 1;
-        while let Some(session) = file_rx.recv().await {
-            let path = dir_clone.join(format!("reg_{}.json", reg_count));
+    thread::spawn(move || {
+        let mut file_count = 1;
+        println!("[WORKER] Hilo nativo de procesamiento iniciado.");
+        
+        // El blocking_recv() hace que este hilo no consuma CPU hasta que llegue data
+        while let Some(mut session) = rx.blocking_recv() {
+            let start_proc = Local::now();
+            
+            // --- AQUÍ METES TU IA / PROCESAMIENTO ---
+            // Como dijiste, aquí puedes demorarte 20 segundos y no pasa nada.
+            procesar_inteligencia_artificial(&mut session);
+            
+            let proc_dur = Local::now().signed_duration_since(start_proc).num_milliseconds();
+
+            // --- ESCRITURA FINAL ---
+            let path = dir_clone.join(format!("reg_{}.json", file_count));
             if let Ok(file) = File::create(&path) {
-                let _ = serde_json::to_writer(file, &session);
+                if serde_json::to_writer(file, &session).is_ok() {
+                    println!(
+                        "\n[WORKER] Bloque {} guardado. IA: {}ms | Path: {}", 
+                        file_count, proc_dur, path.display()
+                    );
+                }
             }
-            reg_count += 1;
+            file_count += 1;
         }
     });
 
+    // --- SETUP HARDWARE ---
     let shared_i2c = Arc::new(Mutex::new(I2c::new().expect("I2C Fail")));
     let acc_module = Arc::new(AccelerationModule::new(Bus::Spi0, SlaveSelect::Ss0));
     let env_module = Arc::new(EnvironmentModule::new(Arc::clone(&shared_i2c)));
@@ -47,7 +66,16 @@ async fn main() {
         PressureMatrix::init(Arc::clone(&shared_i2c)).expect("Pressure Fail")
     ));
 
-    // El ticker manda: 20Hz = 50ms por tick. 1200 ticks = 60 segundos.
+    // Hilo de escaneo constante (Presión)
+    let p_hw = Arc::clone(&pressure_sensor);
+    thread::spawn(move || {
+        loop {
+            if let Ok(mut s) = p_hw.write() { s.scan_and_update(); }
+            thread::sleep(Duration::from_millis(10));
+        }
+    });
+
+    // --- METRÓNOMO ---
     let mut ticker = interval(Duration::from_millis(50));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Burst);
 
@@ -55,19 +83,19 @@ async fn main() {
     let mut init_ts = Local::now().format("%H:%M:%S%.3f").to_string();
     let mut ticks = 0;
 
-    println!("[SISTEMA] Metrónomo iniciado: 60s/1200A/60P.");
+    println!("[SISTEMA] Metrónomo en marcha. 1200A/60P por minuto.");
 
     loop {
         ticker.tick().await;
         let ts = Local::now().format("%H:%M:%S%.3f").to_string();
         
-        // --- 1. CAPTURA OBLIGATORIA (Tick = Aceleración) ---
+        // 1. Aceleración
         current_data.acceleration.push(AccelSample {
             timestamp: ts.clone(),
             measure: acc_module.get_latest_data(),
         });
 
-        // --- 2. PRESIÓN (Cada segundo exacto: 20, 40, 60...) ---
+        // 2. Presión (cada 1s)
         if (ticks + 1) % 20 == 0 {
             if let Ok(s) = pressure_sensor.read() {
                 current_data.pressure.push(PressureSample {
@@ -75,12 +103,11 @@ async fn main() {
                     measure: Arc::new(s.buffers[s.latest_idx]),
                 });
             }
-            // Log de auditoría cada segundo
-            print!("\r[{}] Tick: {:>4} | A:{:>4} | P:{:>2}", ts, ticks + 1, current_data.acceleration.len(), current_data.pressure.len());
+            print!("\r[{}] Ticks: {:>4} | A:{} P:{}", ts, ticks + 1, current_data.acceleration.len(), current_data.pressure.len());
             io::stdout().flush().ok();
         }
 
-        // --- 3. AMBIENTE (Cada 20 segundos) ---
+        // 3. Ambiente (cada 20s)
         if (ticks + 1) % 400 == 0 {
             let (t, h) = env_module.get_latest_avg();
             current_data.environment.push(EnvironmentSample {
@@ -92,26 +119,31 @@ async fn main() {
 
         ticks += 1;
 
-        // --- 4. CIERRE AL MINUTO (Tick 1200) ---
+        // 4. Envío al Worker
         if ticks >= 1200 {
             let finish_ts = ts.clone();
-            
-            // Verificación de integridad antes de enviar
-            println!("\n[CIERRE] {} | A: {} | P: {}", finish_ts, current_data.acceleration.len(), current_data.pressure.len());
-
             let session = SessionSchema {
                 initTimestamp: init_ts.clone(),
                 finishTimestamp: finish_ts.clone(),
                 dataRaw: std::mem::take(&mut current_data),
             };
 
-            let _ = file_tx.try_send(session);
+            // Se envía la data y el metrónomo queda libre para el siguiente minuto
+            if let Err(_) = tx.try_send(session) {
+                println!("\n[ALERTA] Canal saturado. El Worker es demasiado lento.");
+            }
 
-            // Reinicio de ciclo
             init_ts = finish_ts;
             ticks = 0;
             current_data.acceleration.reserve(1200);
             current_data.pressure.reserve(60);
         }
     }
+}
+
+// Aquí es donde meterás tu magia de procesamiento
+fn procesar_inteligencia_artificial(session: &mut SessionSchema) {
+    // Ejemplo de acceso: session.dataRaw.acceleration
+    // Este código corre en el hilo nativo.
+    // thread::sleep(Duration::from_secs(5)); // Descomenta para probar el lag
 }
