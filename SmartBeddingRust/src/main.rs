@@ -50,7 +50,7 @@ async fn main() {
 
     // --- HILO 3: EL METRÓNOMO (Controlador de flujo) ---
     // Busca donde creas el intervalo en el loop de main
-    let mut milis_intervalo = interval(Duration::from_millis(CONFIG.main_trigger_ms));
+    let mut milis_intervalo = interval(Duration::from_millis(CONFIG.pressure_trigger_ms));
     milis_intervalo.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
