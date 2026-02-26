@@ -1,62 +1,54 @@
-use crate::pressure::{COL_SIZE, ROW_SIZE};
-use crate::config::CONFIG;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use crate::config::CONFIG;
 
-#[derive(Clone)]
-pub struct PressureSnapshot {
-    pub timestamp: String,
-    pub matrix: [[u16; COL_SIZE]; ROW_SIZE],
+pub struct Storage {
+    pub current_dir: PathBuf,
 }
 
-pub struct StorageSystem {
-    session_path: PathBuf,
-    pub pressure_buffer: Vec<PressureSnapshot>,
-}
+impl Storage {
+    pub fn init() -> Self {
+        // 1. Aseguramos que el path base exista
+        let base_path = Path::new(CONFIG.storage_path);
+        if !base_path.exists() {
+            fs::create_dir_all(base_path).expect("[STORAGE] No se pudo crear la carpeta base");
+        }
 
-impl StorageSystem {
-    pub fn new() -> Self {
-        let base_path = CONFIG.storage_path;
-        let _ = fs::create_dir_all(base_path);
+        // 2. Contar carpetas existentes (max_index debe ser u32 explícito)
+        let mut max_index: u32 = 0;
+        if let Ok(entries) = fs::read_dir(base_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Corrección del error E0599: file_name() -> Option<&OsStr> -> to_str()
+                    if let Some(os_name) = path.file_name() {
+                        if let Some(name_str) = os_name.to_str() {
+                            if let Some(stripped) = name_str.strip_prefix("register_") {
+                                // Corrección del error E0282: parse ya sabe que es u32 por max_index
+                                if let Ok(n) = stripped.parse::<u32>() {
+                                    if n > max_index {
+                                        max_index = n;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        let n = fs::read_dir(base_path)
-            .map(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path().is_dir())
-                    .filter(|e| e.file_name().to_string_lossy().starts_with("register_"))
-                    .count()
-            })
-            .unwrap_or(0);
+        // 3. Crear la nueva carpeta register_n+1
+        let new_folder_name = format!("register_{}", max_index + 1);
+        let new_path = base_path.join(new_folder_name);
 
-        let session_path = PathBuf::from(base_path).join(format!("register_{}", n + 1));
-        
-        if CONFIG.storage_enabled {
-            let _ = fs::create_dir_all(&session_path).ok();
+        fs::create_dir(&new_path).expect("[STORAGE] No se pudo crear la nueva carpeta de registro");
+
+        if CONFIG.debug_mode {
+            println!("[STORAGE] Sesión iniciada en: {:?}", new_path);
         }
 
         Self {
-            session_path,
-            pressure_buffer: Vec::with_capacity(200),
+            current_dir: new_path,
         }
-    }
-
-    pub fn add_pressure_snapshot(&mut self, snapshot: PressureSnapshot) {
-        self.pressure_buffer.push(snapshot);
-    }
-
-    pub fn trigger_flush(&mut self) {
-        let count = self.pressure_buffer.len();
-        if count == 0 {
-            if CONFIG.debug_mode { println!("[STORAGE] Nada que guardar."); }
-            return;
-        }
-
-        println!("\n[TRIGGER] >>> Almacenando {} muestras en {:?}...", count, self.session_path);
-        
-        // Aquí podrías implementar el guardado real a CSV si lo deseas
-        self.pressure_buffer.clear();
-        
-        println!("[STORAGE] >>> Buffer limpio.\n");
     }
 }

@@ -1,7 +1,9 @@
 mod pressure;
 mod bluetooth;
 mod config;
+mod storage;
 
+use storage::Storage;
 use config::CONFIG;
 use pressure::{PressureMatrix, COL_SIZE, ROW_SIZE};
 use std::sync::{Arc, RwLock};
@@ -13,16 +15,19 @@ use chrono::Local;
 
 #[tokio::main]
 async fn main() {
-    // 1. Inicialización del sensor con el chequeo de error
-    let sensor = Arc::new(RwLock::new(
-        PressureMatrix::init().expect("Error crítico: No se pudo inicializar el hardware I2C")
+
+    let _storage = Storage::init();
+
+    // Inicialización del sensor con el chequeo de error
+    let pressure_sensor = Arc::new(RwLock::new(
+        PressureMatrix::init().expect("[PRESSURE] Error crítico: No se pudo inicializar el hardware I2C")
     ));
 
-    // 2. Canal MPSC: Capacidad 1 para priorizar datos frescos sobre datos acumulados
-    let (tx, mut rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
+    // Canal MPSC: Capacidad 1 para priorizar datos frescos sobre datos acumulados
+    let (pressure_tx, mut pressure_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
 
     // --- HILO 1: HARDWARE (Lectura intensiva) ---
-    let sensor_hw = Arc::clone(&sensor);
+    let sensor_hw = Arc::clone(&pressure_sensor);
     thread::spawn(move || {
         if CONFIG.debug_mode { println!("[DEBUG] Hilo de hardware iniciado."); }
         loop {
@@ -36,7 +41,7 @@ async fn main() {
 
     // --- HILO 2: RENDERIZADO (Consola / UI) ---
     tokio::spawn(async move {
-        while let Some((ts, matriz)) = rx.recv().await {
+        while let Some((ts, matriz)) = pressure_rx.recv().await {
             renderizar_matriz(ts, matriz);
         }
     });
@@ -59,9 +64,9 @@ async fn main() {
         
         // Cambiamos try_read por read para que NO de error de "ocupado"
         // El hardware sigue a su bola, el main solo pide el último buffer listo.
-        if let Ok(s) = sensor.read() {
+        if let Ok(s) = pressure_sensor.read() {
             let copia = s.buffers[s.latest_idx];
-            let _ = tx.try_send((timestamp, copia));
+            let _ = pressure_tx.try_send((timestamp, copia));
         }
     }
 }

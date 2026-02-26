@@ -8,10 +8,10 @@ pub struct SystemConfig {
 }
 
 pub const CONFIG: SystemConfig = SystemConfig {
-    debug_mode: false,            // Lo pongo en false para que no te sature el "Ocupado"
+    debug_mode: true,            // Lo pongo en false para que no te sature el "Ocupado"
     storage_enabled: true,
     scan_delay_ms: 50,            
     pressure_trigger_ms: 1000,        // <--- Aquí configuras cada cuánto quieres ver la matriz (ej. 1000ms)
     pressure_threshold: 100,
-    storage_path: "./data_logs",
+    storage_path: "./data_storage",
 };
