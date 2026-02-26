@@ -2,10 +2,13 @@ mod pressure;
 mod bluetooth;
 mod config;
 mod storage;
+mod acceleration; // <-- Añadido
 
 use storage::Storage;
 use config::CONFIG;
 use pressure::{PressureMatrix, COL_SIZE, ROW_SIZE};
+use acceleration::AccelerationModule; // <-- Añadido
+use rppal::spi::{Bus, SlaveSelect};
 
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -17,21 +20,21 @@ use chrono::Local;
 
 #[tokio::main]
 async fn main() {
-    // 1. Inicializar almacenamiento (Crea carpetas y prepara el buffer)
     let mut storage = Storage::init();
 
-    // 2. Inicialización del sensor
+    // 1. Inicialización de Acelerómetro (SPI0, SS0)
+    let acc_module = Arc::new(AccelerationModule::new(Bus::Spi0, SlaveSelect::Ss0));
+
+    // 2. Inicialización del sensor de presión
     let pressure_sensor = Arc::new(RwLock::new(
         PressureMatrix::init().expect("[PRESSURE] Error crítico: No se pudo inicializar el hardware I2C")
     ));
 
-    // Canal MPSC: Definimos el tipo explícitamente para evitar errores de inferencia
     let (pressure_tx, mut pressure_rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
 
-    // --- HILO 1: HARDWARE (Lectura intensiva) ---
+    // --- HILO 1: HARDWARE PRESIÓN (Escaneo I2C constante) ---
     let sensor_hw = Arc::clone(&pressure_sensor);
     thread::spawn(move || {
-        if CONFIG.debug_mode { println!("[DEBUG] Hilo de hardware iniciado."); }
         loop {
             if let Ok(mut s) = sensor_hw.write() {
                 s.scan_and_update();
@@ -40,13 +43,35 @@ async fn main() {
         }
     });
 
-    // --- HILO 2: CONSUMIDOR (Renderizado y Storage en memoria) ---
+    // --- HILO 2: CONSUMIDOR ACELERACIÓN (20Hz según trigger) ---
+    let acc_consumer = Arc::clone(&acc_module);
+    tokio::spawn(async move {
+        let mut ticker = interval(Duration::from_millis(CONFIG.acceleration_trigger_ms));
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        
+        let mut count = 0;
+
+        loop {
+            ticker.tick().await;
+            let _data = acc_consumer.get_latest_data(); 
+            count += 1;
+
+            // Imprimimos cada segundo (cada 20 muestras a 20Hz)
+            if count % 20 == 0 {
+                let ts = Local::now().format("%H:%M:%S%.3f").to_string();
+                println!("[ACCEL]   [{}] Muestras totales: {}", ts, count);
+            }
+        }
+    });
+
+    // --- HILO 3: CONSUMIDOR PRESIÓN ---
     tokio::spawn(async move {
         while let Some((ts, matriz)) = pressure_rx.recv().await {
-            // Renderizamos en consola
-            renderizar_matriz(ts.clone(), matriz);
+            // Imprimimos el log de presión cada vez que llega una muestra (1Hz)
+            println!("[PRESSURE][{}] Muestra de matriz recibida", ts);
             
-            // Almacenamos en el buffer de memoria si está habilitado
+            // renderizar_matriz(ts.clone(), matriz); // Comentado por ahora
+            
             if CONFIG.storage_enabled {
                 storage.add_sample(ts, matriz);
             }
@@ -60,7 +85,7 @@ async fn main() {
         }
     });
 
-    // --- HILO 3: EL METRÓNOMO (Controlador de flujo) ---
+    // --- HILO 5: EL METRÓNOMO PRESIÓN (1Hz según trigger) ---
     let mut milis_intervalo = interval(Duration::from_millis(CONFIG.pressure_trigger_ms));
     milis_intervalo.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -70,7 +95,6 @@ async fn main() {
         
         if let Ok(s) = pressure_sensor.read() {
             let copia = s.buffers[s.latest_idx];
-            // Enviamos la copia al hilo consumidor
             let _ = pressure_tx.try_send((timestamp, copia));
         }
     }
