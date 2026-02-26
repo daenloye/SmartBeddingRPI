@@ -1,4 +1,8 @@
 mod pressure;
+mod bluetooth;
+mod config;
+
+use config::CONFIG;
 use pressure::{PressureMatrix, COL_SIZE, ROW_SIZE};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -9,58 +13,78 @@ use chrono::Local;
 
 #[tokio::main]
 async fn main() {
+    // 1. Inicialización del sensor con el chequeo de error
     let sensor = Arc::new(RwLock::new(
-        PressureMatrix::init().expect("Error I2C")
+        PressureMatrix::init().expect("Error crítico: No se pudo inicializar el hardware I2C")
     ));
 
-    // Canal para enviar la matriz al hilo de dibujo (capacidad 1 para que no se acumule basura)
+    // 2. Canal MPSC: Capacidad 1 para priorizar datos frescos sobre datos acumulados
     let (tx, mut rx) = mpsc::channel::<(String, [[u16; COL_SIZE]; ROW_SIZE])>(1);
 
-    // --- HILO 1: HARDWARE (Nativo) ---
+    // --- HILO 1: HARDWARE (Lectura intensiva) ---
     let sensor_hw = Arc::clone(&sensor);
     thread::spawn(move || {
+        if CONFIG.debug_mode { println!("[DEBUG] Hilo de hardware iniciado."); }
         loop {
             if let Ok(mut s) = sensor_hw.write() {
                 s.scan_and_update();
             }
-            thread::sleep(Duration::from_millis(50));
+            // Usamos el delay definido en config
+            thread::sleep(Duration::from_millis(CONFIG.scan_delay_ms));
         }
     });
 
-    // --- HILO 2: RENDERIZADO (Consola) ---
+    // --- HILO 2: RENDERIZADO (Consola / UI) ---
     tokio::spawn(async move {
         while let Some((ts, matriz)) = rx.recv().await {
             renderizar_matriz(ts, matriz);
         }
     });
 
-    // --- HILO 3: EL METRÓNOMO (Main) ---
+    // --- HILO 4: SERVICIO BLUETOOTH (Opcional según config) ---
+    tokio::spawn(async {
+        if let Err(e) = bluetooth::run_bluetooth_service().await {
+            eprintln!("[ERROR] Bluetooth: {}", e);
+        }
+    });
+
+    // --- HILO 3: EL METRÓNOMO (Controlador de flujo) ---
+    // Aquí podrías cambiar Duration::from_secs(1) por una variable en CONFIG si quisieras
     let mut milis_intervalo = interval(Duration::from_secs(1));
     milis_intervalo.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-    println!("Sistema operativo. Iniciando visualización segura...");
+    println!(">>> SmartBedding OS ejecutándose...");
+    if CONFIG.storage_enabled {
+        println!(">>> Almacenamiento activo en: {}", CONFIG.storage_path);
+    }
 
     loop {
         milis_intervalo.tick().await;
         
         let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
         
-        if let Ok(s) = sensor.read() {
+        // Usamos try_read para no bloquear el metrónomo si el hardware está escribiendo
+        if let Ok(s) = sensor.try_read() {
             let copia = s.buffers[s.latest_idx];
-            // Enviamos al dibujante. try_send no bloquea si el dibujante está ocupado.
+            
+            // Enviamos al renderizador (y pronto al storage)
             let _ = tx.try_send((timestamp, copia));
+        } else if CONFIG.debug_mode {
+            eprintln!("[DEBUG] El hardware estaba ocupado durante el tick.");
         }
     }
 }
 
 fn renderizar_matriz(ts: String, matrix: [[u16; COL_SIZE]; ROW_SIZE]) {
     let mut output = String::with_capacity(2048);
-    output.push_str("\x1B[2J\x1B[H"); // Limpiar pantalla
-    output.push_str(&format!("─── MUESTRA: {} ───\n\n", ts));
+    // \x1B[2J limpia pantalla, \x1B[H mueve el cursor al inicio
+    output.push_str("\x1B[2J\x1B[H"); 
+    output.push_str(&format!("─── MUESTRA: {} (Threshold: {}) ───\n\n", ts, CONFIG.pressure_threshold));
 
     for row in matrix.iter() {
         for &val in row.iter() {
-            if val > 100 {
+            // Usamos el umbral de CONFIG para el color
+            if val > CONFIG.pressure_threshold {
                 output.push_str(&format!("\x1B[1;32m{:5}\x1B[0m ", val));
             } else {
                 output.push_str(&format!("{:5} ", val));
