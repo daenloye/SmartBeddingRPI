@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 use std::io::{self, Write};
-use std::fs::File;
+use sysinfo::System;
 
 use tokio::sync::mpsc;
 use tokio::time::{interval, MissedTickBehavior};
@@ -34,30 +34,28 @@ async fn main() {
     let storage_dir = Storage::init_path();
     logger("STORAGE", &format!("Directorio de sesión: {}", storage_dir.display()));
     
-    // Canales para el Worker
     let (tx_sensors, mut rx_sensors) = mpsc::channel::<SessionSchema>(10);
     let (tx_audio, mut rx_audio) = mpsc::channel::<AudioMetrics>(10);
 
     // 1. Audio
     let audio_recorder = AudioModule::new();
     audio_recorder.spawn_recorder(storage_dir.clone(), tx_audio);
-    logger("AUDIO", "Sub-sistema de audio y análisis iniciado.");
 
-    // 2. Worker de Escritura
+    // 2. Worker de Procesamiento y Escritura
     let dir_clone = storage_dir.clone();
     thread::spawn(move || {
         let mut file_count = 1;
+        let mut sys_worker = System::new_all();
         while let Some(mut session) = rx_sensors.blocking_recv() {
-            // Sincronización: Esperamos las métricas del minuto
+            // Esperar métricas de audio
             if let Some(metrics) = rx_audio.blocking_recv() {
                 session.measures.audio = Some(metrics);
             }
 
             let path = dir_clone.join(format!("reg_{}.json", file_count));
-            if let Ok(file) = File::create(&path) {
-                serde_json::to_writer(file, &session).ok();
-                logger("WORKER", &format!("✓ Bloque {} guardado (JSON + Audio Metrics)", file_count));
-            }
+            Storage::save_session(session, path, &mut sys_worker);
+            
+            logger("WORKER", &format!("✓ Bloque {} procesado y guardado.", file_count));
             file_count += 1;
         }
     });
@@ -77,7 +75,7 @@ async fn main() {
         }
     });
 
-    // 4. Metrónomo (20Hz)
+    // 4. Metrónomo (20Hz -> 50ms)
     let mut ticker = interval(Duration::from_millis(50));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Burst);
 
@@ -107,13 +105,14 @@ async fn main() {
 
         ticks += 1;
 
-        if ticks >= 1200 {
+        if ticks >= 1200 { // 60 segundos a 20Hz
             let finish_ts = ts.clone();
             let session = SessionSchema {
                 initTimestamp: init_ts.clone(),
                 finishTimestamp: finish_ts.clone(),
                 dataRaw: std::mem::take(&mut current_data),
                 measures: Measures::default(),
+                performance: None,
             };
 
             let _ = tx_sensors.try_send(session);
