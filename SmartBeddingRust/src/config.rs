@@ -1,27 +1,33 @@
 pub struct SystemConfig {
     pub debug_mode: bool,
-
     pub storage_enabled: bool,
     pub storage_path: &'static str,
 
+    // Audio
+    pub audio_sample_rate: u32,
+    pub audio_channels: u16,
+    pub audio_block_duration_s: u64,
+    pub audio_silence_threshold: f32,
+    // Sensores
     pub acceleration_period_ms: u64,
     pub acceleration_trigger_ms: u64,
-
     pub scan_delay_ms: u64,
     pub pressure_trigger_ms: u64,
     pub pressure_threshold: u16,
-    pub pressure_matrix_visualization:bool,
-
+    pub pressure_matrix_visualization: bool,
     pub environment_period_ms: u64,
     pub environment_trigger_ms: u64,
-    
 }
 
 pub const CONFIG: SystemConfig = SystemConfig {
     debug_mode: true,
-
     storage_enabled: true,
     storage_path: "/home/gibic/PruebaEnC/SmartBeddingRust/data_storage",
+
+    audio_sample_rate: 44100,
+    audio_channels: 2,
+    audio_block_duration_s: 60,
+    audio_silence_threshold: 0.01,
 
     acceleration_period_ms: 25,
     acceleration_trigger_ms: 50,  
@@ -33,5 +39,4 @@ pub const CONFIG: SystemConfig = SystemConfig {
 
     environment_period_ms: 10000,
     environment_trigger_ms: 20000,
-
 };

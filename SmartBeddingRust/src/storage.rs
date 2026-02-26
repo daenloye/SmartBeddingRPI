@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use serde::Serialize;
 use crate::pressure::{COL_SIZE, ROW_SIZE};
+use crate::config::CONFIG; // <--- Importamos la configuración centralizada
 
 #[derive(Serialize, Clone, Default)]
 pub struct AudioMetrics {
@@ -52,9 +53,16 @@ pub struct Storage;
 
 impl Storage {
     pub fn init_path() -> PathBuf {
-        let base_path = Path::new("/home/gibic/PruebaEnC/SmartBeddingRust/data_storage");
+        // 1. Usamos la ruta definida en config.rs
+        let base_path = Path::new(CONFIG.storage_path);
+        
+        // 2. Verificamos si el almacenamiento está habilitado en la config
+        if !CONFIG.storage_enabled {
+            println!("[STORAGE] ¡Alerta! El almacenamiento está deshabilitado en la configuración.");
+        }
+
         if !base_path.exists() {
-            fs::create_dir_all(base_path).ok();
+            fs::create_dir_all(base_path).expect("No se pudo crear el directorio base de storage");
         }
 
         let mut max_idx = 0;
@@ -62,14 +70,23 @@ impl Storage {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
                     if let Some(s) = name.strip_prefix("register_") {
-                        if let Ok(n) = s.parse::<u32>() { if n > max_idx { max_idx = n; } }
+                        if let Ok(n) = s.parse::<u32>() { 
+                            if n > max_idx { max_idx = n; } 
+                        }
                     }
                 }
             }
         }
 
         let new_path = base_path.join(format!("register_{}", max_idx + 1));
-        fs::create_dir_all(&new_path).expect("Error creando carpeta");
+        
+        // Creamos la subcarpeta para esta sesión específica
+        fs::create_dir_all(&new_path).expect("Error creando la subcarpeta de registro");
+        
+        if CONFIG.debug_mode {
+            println!("[STORAGE] Nueva sesión iniciada en: {}", new_path.display());
+        }
+
         new_path
     }
 }
