@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { LoginComponent } from './login/login.component';
 import { TemplatePanelComponent } from './panel/template-panel/template-panel.component';
 import { HomeComponent } from './panel/home/home.component';
+import { ConnectivityComponent } from './panel/connectivity/connectivity.component';
 
 export const routes: Routes = [
   {path: '', component: LoginComponent},
@@ -10,6 +11,7 @@ export const routes: Routes = [
     component: TemplatePanelComponent,
     children:[
       {path: '', component: HomeComponent},
+      {path: 'connectivity', component: ConnectivityComponent},
     ]
 
   }
