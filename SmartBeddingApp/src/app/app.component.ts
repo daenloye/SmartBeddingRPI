@@ -1,6 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { AlertPanelComponent } from "./components/alert/alert.component";
+import { ApiService } from './services/api.service';
 
 @Component({
   selector: 'app-root',
@@ -10,4 +11,6 @@ import { AlertPanelComponent } from "./components/alert/alert.component";
 })
 export class AppComponent {
   title = 'SmartBeddingSystem';
+
+
 }

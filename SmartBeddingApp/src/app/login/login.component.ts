@@ -29,7 +29,7 @@ export class LoginComponent {
       return;
     }
 
-    this.apiService.login(this.code).subscribe({
+    this.apiService.login(this.code.toString()).subscribe({
       next: (res) => {
         console.log('Login response:', res);
         if (res.result) {
