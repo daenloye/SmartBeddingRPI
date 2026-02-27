@@ -14,6 +14,7 @@ use rppal::spi::{Bus, SlaveSelect};
 use rppal::i2c::I2c;
 
 use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use std::io::{self, Write};
@@ -32,6 +33,9 @@ fn logger(module: &str, msg: &str) {
 async fn main() {
     logger("SISTEMA", "=== Iniciando Estación de Monitoreo Rust ===");
 
+    // Variable compartida para estado de MQTT
+    let mqtt_status = Arc::new(AtomicBool::new(false));
+
     let storage_dir = Storage::init_path();
     logger("STORAGE", &format!("Directorio de sesión: {}", storage_dir.display()));
     
@@ -48,14 +52,11 @@ async fn main() {
         let mut file_count = 1;
         let mut sys_worker = System::new_all();
         while let Some(mut session) = rx_sensors.blocking_recv() {
-            // Esperar métricas de audio
             if let Some(metrics) = rx_audio.blocking_recv() {
                 session.measures.audio = Some(metrics);
             }
-
             let path = dir_clone.join(format!("reg_{}.json", file_count));
             Storage::save_session(session, path, &mut sys_worker);
-            
             logger("WORKER", &format!("✓ Bloque {} procesado y guardado.", file_count));
             file_count += 1;
         }
@@ -76,15 +77,16 @@ async fn main() {
         }
     });
 
-    // --- NUEVO: INICIAR API ---
+    // --- INICIAR API ---
     let p_api = Arc::clone(&pressure_sensor);
-    let a_api = Arc::clone(&acc_module); // Asegúrate que AccelerationModule sea Arc o clonable
+    let a_api = Arc::clone(&acc_module);
+    let m_api = Arc::clone(&mqtt_status);
 
     tokio::spawn(async move {
-        api::start_api(p_api, a_api).await;
+        api::start_api(p_api, a_api, m_api).await;
     });
 
-    // 4. Metrónomo (20Hz -> 50ms)
+    // --- METRÓNOMO ---
     let mut ticker = interval(Duration::from_millis(50));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Burst);
 
@@ -114,17 +116,16 @@ async fn main() {
 
         ticks += 1;
 
-        if ticks >= 1200 { // 60 segundos a 20Hz
+        if ticks >= 1200 { 
             let finish_ts = ts.clone();
             let session = SessionSchema {
                 initTimestamp: init_ts.clone(),
                 finishTimestamp: finish_ts.clone(),
                 dataRaw: std::mem::take(&mut current_data),
-                dataProcessed: storage::DataProcessed::default(), // <--- Añade esto
+                dataProcessed: storage::DataProcessed::default(),
                 measures: Measures::default(),
                 performance: None,
             };
-
             let _ = tx_sensors.try_send(session);
             init_ts = finish_ts;
             ticks = 0;

@@ -5,10 +5,10 @@ use axum::{
     extract::{State, FromRequestParts},
     http::{StatusCode, Request, Method, header, request::Parts},
     response::IntoResponse,
-    Extension, // <--- Crucial para que el extractor vea el estado
+    Extension,
 };
 use tower_http::cors::{Any, CorsLayer};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::{AtomicBool, Ordering}};
 use crate::pressure::PressureMatrix;
 use crate::acceleration::AccelerationModule;
 use crate::config::CONFIG;
@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use chrono::Local;
 use uuid::Uuid;
 use async_trait::async_trait;
+use std::process::Command;
 
 // =============================
 // STRUCTS
@@ -39,6 +40,7 @@ pub struct AppState {
     pub pressure: Arc<RwLock<PressureMatrix>>,
     pub accel: Arc<AccelerationModule>,
     pub session_token: RwLock<Option<String>>,
+    pub mqtt_connected: Arc<AtomicBool>,
 }
 
 // =============================
@@ -61,7 +63,6 @@ where
 
         let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
 
-        // Ahora esto NO fallará porque añadimos el layer Extension
         let state = parts
             .extensions
             .get::<Arc<AppState>>()
@@ -111,11 +112,13 @@ where
 pub async fn start_api(
     pressure: Arc<RwLock<PressureMatrix>>,
     accel: Arc<AccelerationModule>,
+    mqtt_connected: Arc<AtomicBool>,
 ) {
     let shared_state = Arc::new(AppState {
         pressure,
         accel,
         session_token: RwLock::new(None),
+        mqtt_connected,
     });
 
     let cors = CorsLayer::new()
@@ -126,13 +129,12 @@ pub async fn start_api(
     let app = Router::new()
         .route("/auth", post(check_handler))
         .route("/verify", get(verify_handler))
-        // RUTAS PRIVADAS
         .route("/connectivity", get(connectivity_handler))
         .route("/storage", get(storage_handler))
         .route("/pressure", get(pressure_handler))
         .route("/accel", get(accel_handler))
         .layer(cors)
-        .layer(Extension(shared_state.clone())) // <--- ESTO SOLUCIONA TU ERROR
+        .layer(Extension(shared_state.clone()))
         .with_state(shared_state);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -195,17 +197,41 @@ async fn verify_handler(
 }
 
 async fn connectivity_handler(
+    State(state): State<Arc<AppState>>,
     _user: AuthUser, 
 ) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+    
+    // Obtener SSID actual
+    let ssid = Command::new("iwgetid")
+        .arg("-r")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "".into());
+
+    // Escaneo de redes vía nmcli
+    let networks = Command::new("nmcli")
+        .args(["-t", "-f", "SSID,SIGNAL", "dev", "wifi"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.is_empty())
+                .filter_map(|l| {
+                    let parts: Vec<&str> = l.split(':').collect();
+                    if parts.len() >= 2 && !parts[0].is_empty() {
+                        Some(json!({ "SSID": parts[0], "Strength": parts[1].parse::<i32>().unwrap_or(0) }))
+                    } else { None }
+                })
+                .collect::<Vec<Value>>()
+        })
+        .unwrap_or_else(|_| vec![]);
+
     let data = json!({
-        "APMode": false,
-        "WifiSSID": "SmartBedding",
-        "BrokerMQTT": false,
-        "Networks": [
-            {"SSID": "Red1", "Strength": -50},
-            {"SSID": "Red2", "Strength": -70}
-        ]
+        "APMode": ssid.is_empty(),
+        "WifiSSID": if ssid.is_empty() { "Modo AP / No conectado" } else { &ssid },
+        "BrokerMQTT": state.mqtt_connected.load(Ordering::SeqCst),
+        "Networks": networks
     });
 
     Json(ApiResponse { result: true, timestamp: now, data: Some(data), message: None })
@@ -216,14 +242,12 @@ async fn storage_handler(
 ) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
     let data = json!({
-        "rreeMb": 512,
-        "rotalMb": 10240,
+        "freeMb": 512,
+        "totalMb": 10240,
         "registeredSessions": [
-            {"date": now, "recordTime": 600, "sizeMb": 128},
-            {"date": now, "recordTime": 300, "sizeMb": 64}
+            {"date": now, "recordTime": 600, "sizeMb": 128}
         ]
     });
-
     Json(ApiResponse { result: true, timestamp: now, data: Some(data), message: None })
 }
 
@@ -232,20 +256,12 @@ async fn pressure_handler(
     _user: AuthUser,
 ) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
-    
-    // Ejemplo de cómo devolver la última matriz de presión real
     let current_matrix = if let Ok(s) = state.pressure.read() {
         json!(s.buffers[s.latest_idx])
     } else {
         json!(null)
     };
-
-    Json(ApiResponse {
-        result: true,
-        timestamp: now,
-        data: Some(current_matrix),
-        message: None,
-    })
+    Json(ApiResponse { result: true, timestamp: now, data: Some(current_matrix), message: None })
 }
 
 async fn accel_handler(
@@ -254,11 +270,5 @@ async fn accel_handler(
 ) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
     let accel_data = state.accel.get_latest_data();
-
-    Json(ApiResponse {
-        result: true,
-        timestamp: now,
-        data: Some(json!(accel_data)),
-        message: None,
-    })
+    Json(ApiResponse { result: true, timestamp: now, data: Some(json!(accel_data)), message: None })
 }
