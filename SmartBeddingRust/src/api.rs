@@ -2,21 +2,23 @@ use axum::{
     Router, routing::get, Json, extract::State,
     http::{StatusCode, Request, Method, header},
     middleware::{self, Next},
-    response::Response,
+    response::{Response, IntoResponse},
 };
-use tower_http::cors::{Any, CorsLayer}; // Necesitas: tower-http = { version = "0.5", features = ["cors"] }
+use tower_http::cors::{Any, CorsLayer};
 use std::sync::{Arc, RwLock};
 use crate::pressure::PressureMatrix;
 use crate::acceleration::AccelerationModule;
-use crate::config::CONFIG; // Usaremos el token de aquí
+use crate::config::CONFIG;
 use serde::Serialize;
 use chrono::Local;
 
+// Estructura Única y Global de Respuesta
 #[derive(Serialize)]
 pub struct ApiResponse<T> {
     pub result: bool,
     pub timestamp: String,
-    pub data: T,
+    pub data: Option<T>,
+    pub message: Option<String>,
 }
 
 pub struct AppState {
@@ -27,17 +29,15 @@ pub struct AppState {
 pub async fn start_api(pressure: Arc<RwLock<PressureMatrix>>, accel: Arc<AccelerationModule>) {
     let shared_state = Arc::new(AppState { pressure, accel });
 
-    // Configuración de CORS para que Angular no llore
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
-        .allow_origin(Any) // En producción podrías poner solo la IP de la Pi
+        .allow_origin(Any) 
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
     let app = Router::new()
         .route("/ping", get(ping_handler))
-        // Aquí puedes meter más rutas protegidas
-        .layer(middleware::from_fn(auth_middleware)) // Middleware de seguridad
-        .layer(cors) // Capa de CORS
+        .layer(middleware::from_fn(auth_middleware))
+        .layer(cors)
         .with_state(shared_state);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -47,29 +47,38 @@ pub async fn start_api(pressure: Arc<RwLock<PressureMatrix>>, accel: Arc<Acceler
     axum::serve(listener, app).await.unwrap();
 }
 
-// MIDDLEWARE: Verifica el token estático
+// MIDDLEWARE: Validación con el nuevo estándar de respuesta
 async fn auth_middleware(
     req: Request<axum::body::Body>,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, Response> {
     let auth_header = req.headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok());
 
-    // Comparamos con el token definido en tu CONFIG
     if let Some(auth_str) = auth_header {
         if auth_str == format!("Bearer {}", CONFIG.api_token) {
             return Ok(next.run(req).await);
         }
     }
 
-    Err(StatusCode::UNAUTHORIZED)
+    // Respuesta de error usando ApiResponse<T>
+    let error_response: ApiResponse<()> = ApiResponse {
+        result: false,
+        timestamp: Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string(),
+        data: None,
+        message: Some("No tienes autorización para esto".to_string()),
+    };
+
+    Err((StatusCode::UNAUTHORIZED, Json(error_response)).into_response())
 }
 
-async fn ping_handler() -> Json<ApiResponse<Option<String>>> {
+// HANDLER: Ping usando el nuevo estándar
+async fn ping_handler() -> Json<ApiResponse<String>> {
     Json(ApiResponse {
         result: true,
-        timestamp: Local::now().format("%y/%m/%d %H:%M:%S%.3f").to_string(),
-        data: None,
+        timestamp: Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string(),
+        data: Some("pong".to_string()),
+        message: None,
     })
 }

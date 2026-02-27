@@ -43,5 +43,5 @@ pub const CONFIG: SystemConfig = SystemConfig {
     environment_period_ms: 10000,
     environment_trigger_ms: 20000,
 
-    api_token: "1RlpMh35mILv48o0ElcywcpxX72bTjk9qiFqLwMYK33W4VSRQk",
+    api_token: "1RlpMh35mILv48o0ElcywcpxX72bTjk9qiFqLwMYK33W4VSRQkm0IvsgolsS5Q9ETAb56uE3ZIG2UrR5S8lz4Ou6p90Sx9rA78WfrYe7t2C1QzfNHi1BCMmElTw4AmHXxiBAVHgIMEWuCupozWprh9KhY9GWOhwe65NhMoehgq5PB51m9SpwMSEfOLX7BiTsCw7NaMvY",
 };
