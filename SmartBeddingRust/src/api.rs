@@ -2,10 +2,9 @@ use axum::{
     Router,
     routing::{get, post},
     Json,
-    extract::State,
-    http::{StatusCode, Request, Method, header},
-    middleware::Next,
-    response::{Response, IntoResponse},
+    extract::{State, FromRequestParts},
+    http::{StatusCode, Request, Method, header, request::Parts},
+    response::IntoResponse,
 };
 use tower_http::cors::{Any, CorsLayer};
 use std::sync::{Arc, RwLock};
@@ -15,6 +14,7 @@ use crate::config::CONFIG;
 use serde::{Serialize, Deserialize};
 use chrono::Local;
 use uuid::Uuid;
+use async_trait::async_trait;
 
 // =============================
 // STRUCTS
@@ -40,6 +40,70 @@ pub struct AppState {
 }
 
 // =============================
+// AUTH EXTRACTOR
+// =============================
+
+pub struct AuthUser;
+
+#[async_trait]
+impl<S> FromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, Json<ApiResponse<()>>);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+
+        let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+
+        // Obtener estado real
+        let state = parts
+            .extensions
+            .get::<Arc<AppState>>()
+            .ok_or((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::<()> {
+                    result: false,
+                    timestamp: now.clone(),
+                    data: None,
+                    message: Some("State missing".into()),
+                }),
+            ))?;
+
+        // Obtener header Authorization
+        let auth_header = parts
+            .headers
+            .get(header::AUTHORIZATION)
+            .and_then(|h| h.to_str().ok());
+
+        let session_token = state.session_token.read().unwrap();
+
+        let is_valid = if let (Some(auth_str), Some(valid_token)) = (auth_header, &*session_token) {
+            auth_str == format!("Bearer {}", valid_token)
+        } else {
+            false
+        };
+
+        if is_valid {
+            Ok(AuthUser)
+        } else {
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::<()> {
+                    result: false,
+                    timestamp: now,
+                    data: None,
+                    message: Some("Auth incorrecto".into()),
+                }),
+            ))
+        }
+    }
+}
+
+// =============================
 // START API
 // =============================
 
@@ -61,6 +125,9 @@ pub async fn start_api(
     let app = Router::new()
         .route("/auth", post(check_handler))
         .route("/verify", get(verify_handler))
+        // RUTAS PRIVADAS
+        .route("/pressure", get(pressure_handler))
+        .route("/accel", get(accel_handler))
         .layer(cors)
         .with_state(shared_state);
 
@@ -72,7 +139,7 @@ pub async fn start_api(
 }
 
 // =============================
-// AUTH LOGIN
+// LOGIN
 // =============================
 
 async fn check_handler(
@@ -93,20 +160,20 @@ async fn check_handler(
             result: true,
             timestamp: now,
             data: Some(new_token),
-            message: Some("Token generado".to_string()),
+            message: Some("Token generado".into()),
         })
     } else {
         Json(ApiResponse {
             result: false,
             timestamp: now,
             data: None,
-            message: Some("Código incorrecto".to_string()),
+            message: Some("Código incorrecto".into()),
         })
     }
 }
 
 // =============================
-// VERIFY (RESPONDE SI / NO)
+// VERIFY (PUBLICA)
 // =============================
 
 async fn verify_handler(
@@ -135,7 +202,7 @@ async fn verify_handler(
                 result: true,
                 timestamp: now,
                 data: None,
-                message: Some("Auth correcto".to_string()),
+                message: Some("Auth correcto".into()),
             })
         )
     } else {
@@ -145,8 +212,42 @@ async fn verify_handler(
                 result: false,
                 timestamp: now,
                 data: None,
-                message: Some("Auth incorrecto".to_string()),
+                message: Some("Auth incorrecto".into()),
             })
         )
     }
+}
+
+// =============================
+// RUTAS PRIVADAS
+// =============================
+
+async fn pressure_handler(
+    State(_state): State<Arc<AppState>>,
+    _user: AuthUser,
+) -> Json<ApiResponse<String>> {
+
+    let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+
+    Json(ApiResponse {
+        result: true,
+        timestamp: now,
+        data: Some("Pressure data".into()),
+        message: None,
+    })
+}
+
+async fn accel_handler(
+    State(_state): State<Arc<AppState>>,
+    _user: AuthUser,
+) -> Json<ApiResponse<String>> {
+
+    let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+
+    Json(ApiResponse {
+        result: true,
+        timestamp: now,
+        data: Some("Accel data".into()),
+        message: None,
+    })
 }
