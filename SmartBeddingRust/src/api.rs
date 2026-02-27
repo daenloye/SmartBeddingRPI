@@ -1,10 +1,10 @@
 use axum::{
-    Router, 
-    routing::{get, post}, // Añadido post aquí
-    Json, 
+    Router,
+    routing::{get, post},
+    Json,
     extract::State,
     http::{StatusCode, Request, Method, header},
-    middleware::{self, Next},
+    middleware::Next,
     response::{Response, IntoResponse},
 };
 use tower_http::cors::{Any, CorsLayer};
@@ -16,7 +16,10 @@ use serde::{Serialize, Deserialize};
 use chrono::Local;
 use uuid::Uuid;
 
-// Estructura Única y Global de Respuesta
+// =============================
+// STRUCTS
+// =============================
+
 #[derive(Serialize)]
 pub struct ApiResponse<T> {
     pub result: bool,
@@ -33,24 +36,31 @@ pub struct ApiLogin {
 pub struct AppState {
     pub pressure: Arc<RwLock<PressureMatrix>>,
     pub accel: Arc<AccelerationModule>,
-    pub session_token: RwLock<Option<String>>, // CAMPO AÑADIDO AQUÍ
+    pub session_token: RwLock<Option<String>>,
 }
 
-pub async fn start_api(pressure: Arc<RwLock<PressureMatrix>>, accel: Arc<AccelerationModule>) {
-    let shared_state = Arc::new(AppState { 
-        pressure, 
+// =============================
+// START API
+// =============================
+
+pub async fn start_api(
+    pressure: Arc<RwLock<PressureMatrix>>,
+    accel: Arc<AccelerationModule>,
+) {
+    let shared_state = Arc::new(AppState {
+        pressure,
         accel,
-        session_token: RwLock::new(None) // Inicializado correctamente
+        session_token: RwLock::new(None),
     });
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
-        .allow_origin(Any) 
+        .allow_origin(Any)
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
-    // RUTAS PÚBLICAS (No pasan por el middleware)
     let app = Router::new()
-        .route("/auth", post(check_handler)) // POST para validar código y dar token
+        .route("/auth", post(check_handler))
+        .route("/verify", get(verify_handler))
         .layer(cors)
         .with_state(shared_state);
 
@@ -61,17 +71,20 @@ pub async fn start_api(pressure: Arc<RwLock<PressureMatrix>>, accel: Arc<Acceler
     axum::serve(listener, app).await.unwrap();
 }
 
-// HANDLER: /auth (PÚBLICO)
-// Aquí es donde Angular envía el código de CONFIG y recibe el UUID
+// =============================
+// AUTH LOGIN
+// =============================
+
 async fn check_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ApiLogin>,
 ) -> Json<ApiResponse<String>> {
+
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
 
     if payload.code == CONFIG.api_code {
         let new_token = Uuid::new_v4().to_string();
-        
+
         if let Ok(mut token_lock) = state.session_token.write() {
             *token_lock = Some(new_token.clone());
         }
@@ -80,42 +93,60 @@ async fn check_handler(
             result: true,
             timestamp: now,
             data: Some(new_token),
-            message: Some("Token generado exitosamente".to_string()),
+            message: Some("Token generado".to_string()),
         })
     } else {
         Json(ApiResponse {
             result: false,
             timestamp: now,
             data: None,
-            message: Some("Código de acceso incorrecto".to_string()),
+            message: Some("Código incorrecto".to_string()),
         })
     }
 }
 
-// MIDDLEWARE: Validación del Token Dinámico
-async fn auth_middleware(
+// =============================
+// VERIFY (RESPONDE SI / NO)
+// =============================
+
+async fn verify_handler(
     State(state): State<Arc<AppState>>,
     req: Request<axum::body::Body>,
-    next: Next,
-) -> Result<Response, Response> {
+) -> impl IntoResponse {
+
+    let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+
     let auth_header = req.headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok());
 
     let session_token = state.session_token.read().unwrap();
 
-    if let (Some(auth_str), Some(valid_token)) = (auth_header, &*session_token) {
-        if auth_str == format!("Bearer {}", valid_token) {
-            return Ok(next.run(req).await);
-        }
-    }
-
-    let error_response: ApiResponse<()> = ApiResponse {
-        result: false,
-        timestamp: Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string(),
-        data: None,
-        message: Some("No tienes autorización para esto".to_string()),
+    let is_valid = if let (Some(auth_str), Some(valid_token)) = (auth_header, &*session_token) {
+        auth_str == format!("Bearer {}", valid_token)
+    } else {
+        false
     };
 
-    Err((StatusCode::UNAUTHORIZED, Json(error_response)).into_response())
+    if is_valid {
+        (
+            StatusCode::OK,
+            Json(ApiResponse::<()> {
+                result: true,
+                timestamp: now,
+                data: None,
+                message: Some("Auth correcto".to_string()),
+            })
+        )
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::<()> {
+                result: false,
+                timestamp: now,
+                data: None,
+                message: Some("Auth incorrecto".to_string()),
+            })
+        )
+    }
 }
