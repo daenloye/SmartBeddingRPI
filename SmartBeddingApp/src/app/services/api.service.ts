@@ -47,4 +47,8 @@ export class ApiService {
   logout() {
     localStorage.removeItem('access_token');
   }
+
+  getConnectivity(): Observable<ApiResponse<any>> {
+    return this.http.get<ApiResponse<any>>(`${this.API_URL}/connectivity`);
+  }
 }
