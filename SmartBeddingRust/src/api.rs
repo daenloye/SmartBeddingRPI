@@ -35,7 +35,7 @@ pub async fn start_api(pressure: Arc<RwLock<PressureMatrix>>, accel: Arc<Acceler
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
     let app = Router::new()
-        .route("/ping", get(ping_handler))
+        .route("/check", get(ping_handler))
         .layer(middleware::from_fn(auth_middleware))
         .layer(cors)
         .with_state(shared_state);
@@ -78,7 +78,7 @@ async fn ping_handler() -> Json<ApiResponse<String>> {
     Json(ApiResponse {
         result: true,
         timestamp: Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string(),
-        data: Some("pong".to_string()),
+        data: Some("Servicio autorizado".to_string()),
         message: None,
     })
 }
