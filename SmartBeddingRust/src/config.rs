@@ -17,6 +17,9 @@ pub struct SystemConfig {
     pub pressure_matrix_visualization: bool,
     pub environment_period_ms: u64,
     pub environment_trigger_ms: u64,
+
+    //Api
+    pub api_token: &'static str, // Token estático para autenticación
 }
 
 pub const CONFIG: SystemConfig = SystemConfig {
@@ -39,4 +42,6 @@ pub const CONFIG: SystemConfig = SystemConfig {
 
     environment_period_ms: 10000,
     environment_trigger_ms: 20000,
+
+    api_token: "1RlpMh35mILv48o0ElcywcpxX72bTjk9qiFqLwMYK33W4VSRQk",
 };
