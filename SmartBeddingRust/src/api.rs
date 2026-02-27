@@ -128,6 +128,7 @@ pub async fn start_api(
         .route("/verify", get(verify_handler))
         // RUTAS PRIVADAS
         .route("/connectivity", get(connectivity_handler))
+        .route("/storage", get(storage_handler))
         .route("/pressure", get(pressure_handler))
         .route("/accel", get(accel_handler))
         .layer(cors)
@@ -204,6 +205,22 @@ async fn connectivity_handler(
         "Networks": [
             {"SSID": "Red1", "Strength": -50},
             {"SSID": "Red2", "Strength": -70}
+        ]
+    });
+
+    Json(ApiResponse { result: true, timestamp: now, data: Some(data), message: None })
+}
+
+async fn storage_handler(
+    _user: AuthUser, 
+) -> Json<ApiResponse<Value>> {
+    let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+    let data = json!({
+        "rreeMb": 512,
+        "rotalMb": 10240,
+        "registeredSessions": [
+            {"date": now, "recordTime": 600, "sizeMb": 128},
+            {"date": now, "recordTime": 300, "sizeMb": 64}
         ]
     });
 
