@@ -18,3 +18,7 @@ anyhow = "1.0"     # Manejo de errores simplificado
 sysinfo = "0.30"
 # Para operaciones de vectores y filtros
 ndarray = "0.15"
+
+# Para web
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }

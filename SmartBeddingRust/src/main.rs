@@ -4,6 +4,7 @@ mod storage;
 mod acceleration;
 mod environment;
 mod audio;
+mod api;
 
 use storage::{DataRaw, SessionSchema, AccelSample, PressureSample, Storage, AudioMetrics, Measures};
 use pressure::PressureMatrix;
@@ -73,6 +74,14 @@ async fn main() {
             if let Ok(mut s) = p_hw.write() { s.scan_and_update(); }
             thread::sleep(Duration::from_millis(10));
         }
+    });
+
+    // --- NUEVO: INICIAR API ---
+    let p_api = Arc::clone(&pressure_sensor);
+    let a_api = Arc::clone(&acc_module); // Asegúrate que AccelerationModule sea Arc o clonable
+
+    tokio::spawn(async move {
+        api::start_api(p_api, a_api).await;
     });
 
     // 4. Metrónomo (20Hz -> 50ms)
