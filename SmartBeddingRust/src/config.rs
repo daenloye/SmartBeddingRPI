@@ -20,6 +20,7 @@ pub struct SystemConfig {
 
     //Api
     pub api_token: &'static str, // Token estático para autenticación
+    pub api_code: &'static str, // Token estático para autenticación
 }
 
 pub const CONFIG: SystemConfig = SystemConfig {
@@ -44,4 +45,6 @@ pub const CONFIG: SystemConfig = SystemConfig {
     environment_trigger_ms: 20000,
 
     api_token: "1RlpMh35mILv48o0ElcywcpxX72bTjk9qiFqLwMYK33W4VSRQkm0IvsgolsS5Q9ETAb56uE3ZIG2UrR5S8lz4Ou6p90Sx9rA78WfrYe7t2C1QzfNHi1BCMmElTw4AmHXxiBAVHgIMEWuCupozWprh9KhY9GWOhwe65NhMoehgq5PB51m9SpwMSEfOLX7BiTsCw7NaMvY",
+
+    api_code:"123456",
 };

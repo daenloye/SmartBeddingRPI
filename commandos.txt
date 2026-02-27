@@ -38,7 +38,7 @@ rsync -avz \
   --exclude='__pycache__/' \
   --exclude='*.vscode' \
   --exclude='DataStorage/' \
-  --exclude='SmartBeddingRust/' \
+  --exclude='SmartBeddingApp/' \
   --exclude='Logs/' \
   /home/desarrollo-robbo/Documentos/PruebaEnC/ \
   gibic@192.168.0.112:/home/gibic/PruebaEnC/
