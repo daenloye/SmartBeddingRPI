@@ -5,6 +5,7 @@ use axum::{
     extract::{State, FromRequestParts},
     http::{StatusCode, Request, Method, header, request::Parts},
     response::IntoResponse,
+    Extension, // <--- Crucial para que el extractor vea el estado
 };
 use tower_http::cors::{Any, CorsLayer};
 use std::sync::{Arc, RwLock};
@@ -12,6 +13,7 @@ use crate::pressure::PressureMatrix;
 use crate::acceleration::AccelerationModule;
 use crate::config::CONFIG;
 use serde::{Serialize, Deserialize};
+use serde_json::{json, Value};
 use chrono::Local;
 use uuid::Uuid;
 use async_trait::async_trait;
@@ -59,7 +61,7 @@ where
 
         let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
 
-        // Obtener estado real
+        // Ahora esto NO fallará porque añadimos el layer Extension
         let state = parts
             .extensions
             .get::<Arc<AppState>>()
@@ -69,11 +71,10 @@ where
                     result: false,
                     timestamp: now.clone(),
                     data: None,
-                    message: Some("State missing".into()),
+                    message: Some("State missing en Extensions".into()),
                 }),
             ))?;
 
-        // Obtener header Authorization
         let auth_header = parts
             .headers
             .get(header::AUTHORIZATION)
@@ -96,7 +97,7 @@ where
                     result: false,
                     timestamp: now,
                     data: None,
-                    message: Some("Auth incorrecto".into()),
+                    message: Some("Auth incorrecto o falta Token".into()),
                 }),
             ))
         }
@@ -126,9 +127,11 @@ pub async fn start_api(
         .route("/auth", post(check_handler))
         .route("/verify", get(verify_handler))
         // RUTAS PRIVADAS
+        .route("/connectivity", get(connectivity_handler))
         .route("/pressure", get(pressure_handler))
         .route("/accel", get(accel_handler))
         .layer(cors)
+        .layer(Extension(shared_state.clone())) // <--- ESTO SOLUCIONA TU ERROR
         .with_state(shared_state);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -139,23 +142,20 @@ pub async fn start_api(
 }
 
 // =============================
-// LOGIN
+// HANDLERS
 // =============================
 
 async fn check_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ApiLogin>,
 ) -> Json<ApiResponse<String>> {
-
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
 
     if payload.code == CONFIG.api_code {
         let new_token = Uuid::new_v4().to_string();
-
         if let Ok(mut token_lock) = state.session_token.write() {
             *token_lock = Some(new_token.clone());
         }
-
         Json(ApiResponse {
             result: true,
             timestamp: now,
@@ -172,21 +172,12 @@ async fn check_handler(
     }
 }
 
-// =============================
-// VERIFY (PUBLICA)
-// =============================
-
 async fn verify_handler(
     State(state): State<Arc<AppState>>,
     req: Request<axum::body::Body>,
 ) -> impl IntoResponse {
-
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
-
-    let auth_header = req.headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
-
+    let auth_header = req.headers().get(header::AUTHORIZATION).and_then(|h| h.to_str().ok());
     let session_token = state.session_token.read().unwrap();
 
     let is_valid = if let (Some(auth_str), Some(valid_token)) = (auth_header, &*session_token) {
@@ -196,58 +187,61 @@ async fn verify_handler(
     };
 
     if is_valid {
-        (
-            StatusCode::OK,
-            Json(ApiResponse::<()> {
-                result: true,
-                timestamp: now,
-                data: None,
-                message: Some("Auth correcto".into()),
-            })
-        )
+        (StatusCode::OK, Json(ApiResponse::<()> { result: true, timestamp: now, data: None, message: Some("Auth correcto".into()) }))
     } else {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiResponse::<()> {
-                result: false,
-                timestamp: now,
-                data: None,
-                message: Some("Auth incorrecto".into()),
-            })
-        )
+        (StatusCode::UNAUTHORIZED, Json(ApiResponse::<()> { result: false, timestamp: now, data: None, message: Some("Auth incorrecto".into()) }))
     }
 }
 
-// =============================
-// RUTAS PRIVADAS
-// =============================
+async fn connectivity_handler(
+    _user: AuthUser, 
+) -> Json<ApiResponse<Value>> {
+    let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+    let data = json!({
+        "APMode": false,
+        "WifiSSID": "SmartBedding",
+        "BrokerMQTT": false,
+        "Networks": [
+            {"SSID": "Red1", "Strength": -50},
+            {"SSID": "Red2", "Strength": -70}
+        ]
+    });
+
+    Json(ApiResponse { result: true, timestamp: now, data: Some(data), message: None })
+}
 
 async fn pressure_handler(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     _user: AuthUser,
-) -> Json<ApiResponse<String>> {
-
+) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+    
+    // Ejemplo de cómo devolver la última matriz de presión real
+    let current_matrix = if let Ok(s) = state.pressure.read() {
+        json!(s.buffers[s.latest_idx])
+    } else {
+        json!(null)
+    };
 
     Json(ApiResponse {
         result: true,
         timestamp: now,
-        data: Some("Pressure data".into()),
+        data: Some(current_matrix),
         message: None,
     })
 }
 
 async fn accel_handler(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     _user: AuthUser,
-) -> Json<ApiResponse<String>> {
-
+) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+    let accel_data = state.accel.get_latest_data();
 
     Json(ApiResponse {
         result: true,
         timestamp: now,
-        data: Some("Accel data".into()),
+        data: Some(json!(accel_data)),
         message: None,
     })
 }
