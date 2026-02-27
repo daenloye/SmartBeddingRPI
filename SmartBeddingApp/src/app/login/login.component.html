@@ -22,12 +22,15 @@
             maxlength="6"
             placeholder="······"
             class="input input-bordered w-full text-center text-3xl tracking-[0.5em] focus:border-[#00FFC2] focus:outline-none transition-all bg-slate-50 h-20"
+            [(ngModel)]="code"
+            [ngModelOptions]="{standalone: true}"
           />
         </div>
 
         <div class="form-control mt-8">
           <button class="btn btn-primary w-full text-white shadow-lg hover:shadow-cyan-200/50"
-                  style="background-color: #00FFC2; border-color: #00FFC2; color: #1e293b;">
+                  style="background-color: #00FFC2; border-color: #00FFC2; color: #1e293b;"
+                  (click)="onLogin()">
             Ingresar al sistema
           </button>
         </div>

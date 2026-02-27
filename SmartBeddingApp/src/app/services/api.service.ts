@@ -19,6 +19,7 @@ export class ApiService {
 
     return this.http.post<ApiResponse<string>>(`${this.API_URL}/auth`, payload).pipe(
       tap(res => {
+        console.log('Login response:', res);
         if (res.result && res.data) {
           localStorage.setItem('access_token', res.data);
         }

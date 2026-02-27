@@ -50,7 +50,7 @@ pub async fn start_api(pressure: Arc<RwLock<PressureMatrix>>, accel: Arc<Acceler
 
     // RUTAS PÚBLICAS (No pasan por el middleware)
     let app = Router::new()
-        .route("/check", post(check_handler)) // POST para validar código y dar token
+        .route("/auth", post(check_handler)) // POST para validar código y dar token
         .layer(cors)
         .with_state(shared_state);
 
@@ -61,7 +61,7 @@ pub async fn start_api(pressure: Arc<RwLock<PressureMatrix>>, accel: Arc<Acceler
     axum::serve(listener, app).await.unwrap();
 }
 
-// HANDLER: /check (PÚBLICO)
+// HANDLER: /auth (PÚBLICO)
 // Aquí es donde Angular envía el código de CONFIG y recibe el UUID
 async fn check_handler(
     State(state): State<Arc<AppState>>,
