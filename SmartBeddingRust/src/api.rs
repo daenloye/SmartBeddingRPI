@@ -58,12 +58,12 @@ struct RegisterGroup {
     path: String,
     #[serde(rename = "jsonFiles")]
     json_files: Vec<FileInfo>,
-    #[serde(rename = "wavFiles")]
-    wav_files: Vec<FileInfo>,
+    #[serde(rename = "audioFiles")]
+    audio_files: Vec<FileInfo>,
     #[serde(rename = "jsonUsedMb")]
     json_used_mb: f64,
-    #[serde(rename = "wavUsedMb")]
-    wav_used_mb: f64,
+    #[serde(rename = "audioUsedMb")]
+    audio_used_mb: f64,
     #[serde(rename = "totalUsedMb")]
     total_used_mb: f64,
 }
@@ -308,9 +308,9 @@ async fn storage_handler(_user: AuthUser) -> Json<ApiResponse<Value>> {
                                 .map(|t| chrono::DateTime::<Local>::from(t).format("%Y/%m/%d %H:%M").to_string())
                                 .unwrap_or_else(|| "---".into()),
                             json_files: Vec::new(),
-                            wav_files: Vec::new(),
+                            audio_files: Vec::new(),
                             json_used_mb: 0.0,
-                            wav_used_mb: 0.0,
+                            audio_used_mb: 0.0,
                             total_used_mb: 0.0,
                         }
                     });
@@ -326,13 +326,13 @@ async fn storage_handler(_user: AuthUser) -> Json<ApiResponse<Value>> {
                             group.json_used_mb += file_info.size_mb;
                             group.json_files.push(file_info);
                         },
-                        Some("wav") => {
-                            group.wav_used_mb += file_info.size_mb;
-                            group.wav_files.push(file_info);
+                        Some("opus") => {
+                            group.audio_used_mb += file_info.size_mb;
+                            group.audio_files.push(file_info);
                         },
                         _ => {}
                     }
-                    group.total_used_mb = group.json_used_mb + group.wav_used_mb;
+                    group.total_used_mb = group.json_used_mb + group.audio_used_mb;
                 }
             }
         }

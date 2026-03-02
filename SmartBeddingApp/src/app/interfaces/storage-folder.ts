@@ -7,6 +7,6 @@ export interface StorageFolder {
   name: string;
   path: string;
   totalUsedMb: number;
-  wavFiles:StorageFile[];
-  wavUsedMb: number;
+  audioFiles:StorageFile[];
+  audioUsedMb: number;
 }

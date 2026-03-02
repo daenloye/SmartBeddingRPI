@@ -42,8 +42,8 @@ export class StorageComponent {
               a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
             );
 
-            // Ordenar WAVs
-            folder.wavFiles.sort((a, b) =>
+            // Ordenar audios
+            folder.audioFiles.sort((a, b) =>
               a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
             );
           });

@@ -2,6 +2,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU32, Ordering}};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use std::process::{Command, Stdio}; // <--- Nuevo: Para el proceso hijo
+use std::io::Write;                 // <--- Nuevo: Para escribir al pipe
 use chrono::Local;
 use tokio::sync::mpsc as tokio_mpsc;
 use crate::storage::AudioMetrics;
@@ -34,7 +36,6 @@ impl AudioModule {
             let host = cpal::default_host();
             let device = host.default_input_device().expect("No I2S device");
             
-            // Usamos los valores de CONFIG
             let config = cpal::StreamConfig {
                 channels: CONFIG.audio_channels,
                 sample_rate: cpal::SampleRate(CONFIG.audio_sample_rate),
@@ -55,14 +56,30 @@ impl AudioModule {
 
             while running.load(Ordering::SeqCst) {
                 let n = count.fetch_add(1, Ordering::SeqCst);
-                let filename = storage_dir.join(format!("audio_{}.wav", n));
+                // Cambiamos la extensión a .opus
+                let filename = storage_dir.join(format!("audio_{}.opus", n));
                 
-                if let Ok(mut writer) = hound::WavWriter::create(&filename, hound::WavSpec {
-                    channels: CONFIG.audio_channels,
-                    sample_rate: CONFIG.audio_sample_rate as u32,
-                    bits_per_sample: 16,
-                    sample_format: hound::SampleFormat::Int,
-                }) {
+                // --- INICIO DE MOTOR OPUS ---
+                let mut child = Command::new("ffmpeg")
+                    .args([
+                        "-y",
+                        "-f", "f32le",
+                        "-ar", &CONFIG.audio_sample_rate.to_string(),
+                        "-ac", &CONFIG.audio_channels.to_string(),
+                        "-i", "pipe:0",
+                        "-c:a", "libopus",
+                        "-b:a", "64k",          // 32kbps es ultra ligero pero suena bien
+                        "-vbr", "off",           // Bitrate variable para ahorrar más
+                        "-compression_level", "10",
+                        filename.to_str().unwrap()
+                    ])
+                    .stdin(Stdio::piped())
+                    .stderr(Stdio::null()) 
+                    .spawn();
+
+                if let Ok(mut ffmpeg_process) = child {
+                    let mut stdin = ffmpeg_process.stdin.take().expect("Fallo al abrir pipe");
+                    
                     let mut sum_sq = 0.0;
                     let mut count_samples = 0;
                     let mut max_abs = 0.0f32;
@@ -71,10 +88,11 @@ impl AudioModule {
                     let mut last_s = 0.0f32;
 
                     let start_block = Instant::now();
-                    // Usamos CONFIG para la duración del bloque
+                    
                     while start_block.elapsed().as_secs() < CONFIG.audio_block_duration_s && running.load(Ordering::SeqCst) {
                         if let Ok(samples) = rx.recv_timeout(Duration::from_millis(100)) {
-                            for s in samples {
+                            // 1. ANÁLISIS DE MÉTRICAS (Igual que antes)
+                            for &s in &samples {
                                 let abs_s = s.abs();
                                 sum_sq += s * s;
                                 if abs_s > max_abs { max_abs = abs_s; }
@@ -82,16 +100,25 @@ impl AudioModule {
                                 if abs_s < CONFIG.audio_silence_threshold { silent_samples += 1; }
                                 last_s = s;
                                 count_samples += 1;
-
-                                writer.write_sample((s * i16::MAX as f32) as i16).ok();
                             }
+
+                            // 2. ENVÍO AL COMPRESOR (Conversión de f32 a bytes)
+                            let bytes: &[u8] = unsafe {
+                                std::slice::from_raw_parts(
+                                    samples.as_ptr() as *const u8,
+                                    samples.len() * std::mem::size_of::<f32>(),
+                                )
+                            };
+                            if stdin.write_all(bytes).is_err() { break; }
                         }
                     }
-                    writer.finalize().ok();
+
+                    // Finalizamos el proceso de FFmpeg
+                    drop(stdin);
+                    let _ = ffmpeg_process.wait();
 
                     let rms = (sum_sq / count_samples.max(1) as f32).sqrt();
                     
-                    // 2. CORRECCIÓN: Usar CONFIG para el cálculo del ZCR
                     let metrics = AudioMetrics {
                         db_avg: 20.0 * rms.max(1e-6).log10(),
                         db_max: 20.0 * max_abs.max(1e-6).log10(),
@@ -102,7 +129,10 @@ impl AudioModule {
                     };
                     
                     let _ = metrics_tx.blocking_send(metrics);
-                    audio_log(&format!("✓ Bloque {} guardado y analizado.", n));
+                    audio_log(&format!("✓ Bloque {} guardado en OPUS y analizado.", n));
+                } else {
+                    eprintln!("[ERROR] FFmpeg no está instalado o no se pudo iniciar.");
+                    std::thread::sleep(Duration::from_secs(2));
                 }
             }
         });
