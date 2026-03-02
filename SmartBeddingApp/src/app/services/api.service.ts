@@ -51,4 +51,10 @@ export class ApiService {
   getConnectivity(): Observable<ApiResponse<any>> {
     return this.http.get<ApiResponse<any>>(`${this.API_URL}/connectivity`);
   }
+
+  getStorage(): Observable<ApiResponse<any>> {
+    return this.http.get<ApiResponse<any>>(`${this.API_URL}/storage`);
+  }
+
+
 }

@@ -23,6 +23,8 @@ use std::path::Path;
 use walkdir::{WalkDir, DirEntry};
 use sysinfo::{Disks, Disk};
 
+use std::collections::HashMap;
+
 // =============================
 // STRUCTS
 // =============================
@@ -38,6 +40,30 @@ pub struct ApiResponse<T> {
 #[derive(Deserialize)]
 pub struct ApiLogin {
     pub code: String,
+}
+
+#[derive(Serialize)]
+struct FileInfo {
+    name: String,
+    #[serde(rename = "sizeMb")]
+    size_mb: f64,
+}
+
+#[derive(Serialize)]
+struct RegisterGroup {
+    created: String,
+    name: String,
+    path: String,
+    #[serde(rename = "jsonFiles")]
+    json_files: Vec<FileInfo>,
+    #[serde(rename = "wavFiles")]
+    wav_files: Vec<FileInfo>,
+    #[serde(rename = "jsonUsedMb")]
+    json_used_mb: f64,
+    #[serde(rename = "wavUsedMb")]
+    wav_used_mb: f64,
+    #[serde(rename = "totalUsedMb")]
+    total_used_mb: f64,
 }
 
 pub struct AppState {
@@ -241,72 +267,86 @@ async fn connectivity_handler(
     Json(ApiResponse { result: true, timestamp: now, data: Some(data), message: None })
 }
 
-async fn storage_handler(
-    _user: AuthUser, 
-) -> Json<ApiResponse<Value>> {
+async fn storage_handler(_user: AuthUser) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
     
-    // 1. Calcular espacio en disco (S.O.)
+    // 1. Espacio en disco (S.O.)
     let mut disks = Disks::new_with_refreshed_list();
     let (total_mb, free_mb) = disks.iter()
-        .find(|disk| Path::new(CONFIG.storage_path).starts_with(disk.mount_point()))
-        .map(|disk| (
+        .find(|disk: &&Disk| Path::new(CONFIG.storage_path).starts_with(disk.mount_point()))
+        .map(|disk: &Disk| (
             disk.total_space() / 1024 / 1024, 
             disk.available_space() / 1024 / 1024
         ))
         .unwrap_or((0, 0));
 
-    // 2. Escanear Carpeta de Storage
-    let mut total_size_bytes: u64 = 0;
-    let mut json_count = 0;
-    let mut wav_count = 0;
-    let mut session_folders = Vec::new();
+    // 2. Escaneo y Agrupación por Carpeta
+    // Usamos un HashMap donde la llave es el nombre de la carpeta
+    let mut groups: HashMap<String, RegisterGroup> = HashMap::new();
 
-    // Escaneamos la carpeta definida en CONFIG
+    // WalkDir configurado para encontrar archivos en subcarpetas
     for entry in WalkDir::new(CONFIG.storage_path)
-        .min_depth(1)
-        .max_depth(2) // Ajusta si tus sesiones tienen más subniveles
-        .into_iter()
-        .filter_map(|e| e.ok()) 
+        .min_depth(2) // Empezamos en los archivos dentro de las carpetas de sesión
+        .max_depth(3) 
     {
-        let path = entry.path();
-        let metadata = entry.metadata().unwrap();
+        if let Ok(e) = entry {
+            let path = e.path();
+            if path.is_file() {
+                // Obtenemos el nombre de la carpeta padre (la sesión)
+                if let Some(parent) = path.parent() {
+                    let folder_name = parent.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    
+                    // Si el grupo no existe, lo creamos
+                    let group = groups.entry(folder_name.clone()).or_insert_with(|| {
+                        let metadata = parent.metadata().ok();
+                        RegisterGroup {
+                            name: folder_name,
+                            path: parent.to_string_lossy().to_string(),
+                            created: metadata.and_then(|m| m.created().ok())
+                                .map(|t| chrono::DateTime::<Local>::from(t).format("%Y/%m/%d %H:%M").to_string())
+                                .unwrap_or_else(|| "---".into()),
+                            json_files: Vec::new(),
+                            wav_files: Vec::new(),
+                            json_used_mb: 0.0,
+                            wav_used_mb: 0.0,
+                            total_used_mb: 0.0,
+                        }
+                    });
 
-        if metadata.is_file() {
-            total_size_bytes += metadata.len();
-            match path.extension().and_then(|s| s.to_str()) {
-                Some("json") => json_count += 1,
-                Some("wav") => wav_count += 1,
-                _ => {}
+                    let size_mb = e.metadata().map(|m| m.len() as f64 / 1024.0 / 1024.0).unwrap_or(0.0);
+                    let file_info = FileInfo {
+                        name: e.file_name().to_string_lossy().to_string(),
+                        size_mb: (size_mb * 100.0).round() / 100.0, // Redondear a 2 decimales
+                    };
+
+                    match path.extension().and_then(|s| s.to_str()) {
+                        Some("json") => {
+                            group.json_used_mb += file_info.size_mb;
+                            group.json_files.push(file_info);
+                        },
+                        Some("wav") => {
+                            group.wav_used_mb += file_info.size_mb;
+                            group.wav_files.push(file_info);
+                        },
+                        _ => {}
+                    }
+                    group.total_used_mb = group.json_used_mb + group.wav_used_mb;
+                }
             }
-        } else if metadata.is_dir() {
-            // Si es una carpeta, la contamos como una sesión
-            session_folders.push(json!({
-                "name": entry.file_name().to_string_lossy(),
-                "path": path.to_string_lossy(),
-                "created": metadata.created().ok()
-                    .and_then(|t| Some(chrono::DateTime::<Local>::from(t).format("%Y/%m/%d %H:%M").to_string()))
-                    .unwrap_or_else(|| "---".into())
-            }));
         }
     }
 
-    let used_mb = total_size_bytes / 1024 / 1024;
+    // Convertimos el HashMap a un Vec ordenado por nombre (opcional)
+    let mut registers: Vec<RegisterGroup> = groups.into_values().collect();
+    registers.sort_by(|a, b| b.name.cmp(&a.name)); // De más reciente a más viejo si usas nombres con fecha
 
     let data = json!({
+        "registers": registers,
         "system": {
-            "diskTotalMb": total_mb,
             "diskFreeMb": free_mb,
-            "storageLimitMb": CONFIG.storage_max_mb,
-        },
-        "stats": {
-            "totalUsedMb": used_mb,
-            "jsonFiles": json_count,
-            "wavFiles": wav_count,
-            "totalFiles": json_count + wav_count,
-            "usagePercentage": (used_mb as f64 / CONFIG.storage_max_mb as f64 * 100.0).round()
-        },
-        "registeredSessions": session_folders
+            "diskTotalMb": total_mb,
+            "storageLimitMb": CONFIG.storage_max_mb
+        }
     });
 
     Json(ApiResponse { 
