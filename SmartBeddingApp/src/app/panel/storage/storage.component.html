@@ -118,7 +118,8 @@
       <div class="space-y-4">
         <div class="px-2 flex justify-between items-center">
           <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sesiones Guardadas</span>
-          <button class="btn btn-ghost btn-xs text-error font-light opacity-70 hover:bg-error/10">
+          <button class="btn btn-ghost btn-xs text-error font-light opacity-70 hover:bg-error/10"
+          onclick="deleteModal.showModal()">
             Borrar antiguas
           </button>
         </div>
@@ -136,7 +137,7 @@
                 <div>
                   <p class="text-sm font-semibold text-[#2D3648]">{{folder.created}}</p>
                   <p class="text-[10px] text-slate-400 font-medium italic font-mono">
-                    {{ Math.floor(folder.jsonFiles.length / 60) }}h {{ folder.jsonFiles.length % 60 }}m
+                    Tiempo: {{ Math.floor(folder.jsonFiles.length / 60) }}h {{ folder.jsonFiles.length % 60 }}m
                   </p>
                 </div>
               </div>
@@ -252,5 +253,65 @@
       </div>
     </div>
   </dialog>
+
+  <dialog id="deleteModal" class="modal modal-bottom sm:modal-middle">
+    <div class="modal-box border-t-4 border-error">
+      <form method="dialog">
+        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+      </form>
+
+      <div class="flex items-center gap-3 text-error">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 15.333c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <h3 class="text-lg font-black uppercase tracking-tight">¡Atención: Limpieza de Disco!</h3>
+      </div>
+
+      <div class="py-6 space-y-4">
+        <p class="text-sm text-slate-600 leading-relaxed">
+          Estás a punto de <b>eliminar permanentemente</b> todos los registros almacenados en SmartBedding, a excepción de la sesión que se está grabando actualmente.
+        </p>
+
+        <div class="bg-error/10 p-4 rounded-lg border border-error/20">
+          <ul class="text-xs text-error font-medium space-y-2">
+            <li class="flex items-start gap-2">
+              <span>•</span>
+              <span>Los archivos se borrarán del sistema de archivos.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span>•</span>
+              <span>Esta acción <b>no se puede deshacer</b>. No existe papelera de reciclaje.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span>•</span>
+              <span>Perderás el acceso los históricos de estas sesiones para siempre.</span>
+            </li>
+          </ul>
+        </div>
+
+        <p class="text-[11px] text-slate-400 italic text-center">
+          Asegúrate de haber descargado los datos importantes antes de continuar.
+        </p>
+      </div>
+
+      <div class="modal-action">
+        <form method="dialog" class="flex justify-between">
+          <button class="btn btn-ghost btn-sm">Cancelar</button>
+
+          <button (click)="borrarRegistros()"
+            class="btn btn-error btn-sm px-6 text-white shadow-lg shadow-error/20">
+            Sí, confirmar borrado
+          </button>
+
+
+        </form>
+      </div>
+    </div>
+
+    <form method="dialog" class="modal-backdrop bg-slate-900/40 backdrop-blur-sm">
+      <button>close</button>
+    </form>
+  </dialog>
+
 
 </div>

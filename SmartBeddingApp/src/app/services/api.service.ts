@@ -56,5 +56,9 @@ export class ApiService {
     return this.http.get<ApiResponse<any>>(`${this.API_URL}/storage`);
   }
 
+  clearStorage(): Observable<any> {
+    return this.http.delete<ApiResponse<any>>(`${this.API_URL}/storage`);
+  }
+
 
 }

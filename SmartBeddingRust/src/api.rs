@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, delete},
     Json,
     extract::{State, FromRequestParts},
     http::{StatusCode, Request, Method, header, request::Parts},
@@ -24,6 +24,8 @@ use walkdir::{WalkDir, DirEntry};
 use sysinfo::{Disks, Disk};
 
 use std::collections::HashMap;
+
+use std::fs; // <--- Fundamental
 
 // =============================
 // STRUCTS
@@ -152,7 +154,7 @@ pub async fn start_api(
     });
 
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_origin(Any)
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
@@ -160,7 +162,7 @@ pub async fn start_api(
         .route("/auth", post(check_handler))
         .route("/verify", get(verify_handler))
         .route("/connectivity", get(connectivity_handler))
-        .route("/storage", get(storage_handler))
+        .route("/storage", get(storage_handler).delete(storage_delete_handler))
         .route("/pressure", get(pressure_handler))
         .route("/accel", get(accel_handler))
         .layer(cors)
@@ -355,6 +357,65 @@ async fn storage_handler(_user: AuthUser) -> Json<ApiResponse<Value>> {
         data: Some(data), 
         message: None 
     })
+}
+
+async fn storage_delete_handler(
+    _user: AuthUser,
+) -> impl IntoResponse {
+    let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+    let base_path = Path::new(CONFIG.storage_path);
+
+    // 1. Obtener entradas del directorio
+    let read_result = fs::read_dir(base_path);
+    
+    if let Ok(entries) = read_result {
+        // Forzamos el tipo std::fs::DirEntry para evitar conflictos con walkdir
+        let mut dirs: Vec<std::fs::DirEntry> = entries
+            .filter_map(|r| r.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+
+        // Ordenamos por fecha de creación (de más nuevo a más viejo)
+        dirs.sort_by_key(|e| {
+            e.metadata()
+                .and_then(|m| m.created())
+                .unwrap_or_else(|_| std::time::SystemTime::now())
+        });
+        dirs.reverse(); 
+
+        if dirs.len() <= 1 {
+            return (StatusCode::OK, Json(ApiResponse::<()>{
+                result: true,
+                timestamp: now,
+                data: None,
+                message: Some("Nada que borrar, solo existe la sesión actual".into())
+            }));
+        }
+
+        // 2. Borrar todas menos la primera (la más reciente)
+        let mut deleted_count = 0;
+        // Iteramos sobre los elementos a partir del segundo
+        for entry in dirs.iter().skip(1) {
+            let path_to_delete = entry.path();
+            if fs::remove_dir_all(&path_to_delete).is_ok() {
+                deleted_count += 1;
+            }
+        }
+
+        (StatusCode::OK, Json(ApiResponse::<()>{
+            result: true,
+            timestamp: now,
+            data: None,
+            message: Some(format!("Limpieza total: {} sesiones eliminadas", deleted_count))
+        }))
+    } else {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<()>{
+            result: false,
+            timestamp: now,
+            data: None,
+            message: Some("No se pudo leer el directorio de almacenamiento".into())
+        }))
+    }
 }
 
 async fn pressure_handler(

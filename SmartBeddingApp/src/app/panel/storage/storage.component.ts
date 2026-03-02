@@ -3,6 +3,7 @@ import { ApiService } from '../../services/api.service';
 import { StorageAnswer } from '../../interfaces/storage-answer';
 import { DecimalPipe } from '@angular/common';
 import { StorageFolder } from '../../interfaces/storage-folder';
+import { AlertService } from '../../services/alert.service';
 
 @Component({
   selector: 'app-storage',
@@ -20,7 +21,7 @@ export class StorageComponent {
 
   selectedRegister:StorageFolder | null = null;
 
-  constructor(private apiService: ApiService) { }
+  constructor(private apiService: ApiService, private alertService:AlertService) { }
 
   ngOnInit(): void {
     this.loadData();
@@ -72,6 +73,37 @@ export class StorageComponent {
     if (modal) {
       modal.showModal();
     }
+  }
+
+  borrarRegistros() {
+    this.apiService.clearStorage().subscribe({
+      next: (response) => {
+        if (response?.result && response.data) {
+          this.alertService.addAlert({
+            message: response.message || 'Datos de almacenamiento actualizados',
+            type: 'success',
+            duration: 3000
+          });
+        }else{
+          this.alertService.addAlert({
+            message: response.message || 'Error al borrar registros',
+            type: 'error',
+            duration: 3000
+          });
+        }
+
+      },
+      error: (err) => {
+        this.alertService.addAlert({
+          message: 'Error al borrar registros',
+          type: 'error',
+          duration: 3000
+        });
+      },
+      complete: () => {
+        this.loadData();
+      }
+    });
   }
 
   // Suma de todos los totalUsedMb de los registros
