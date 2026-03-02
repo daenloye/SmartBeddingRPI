@@ -63,4 +63,11 @@ export class ApiService {
   clearStorage(): Observable<any> {
     return this.http.delete<ApiResponse<any>>(`${this.API_URL}/storage`);
   }
+
+  connectWifi(ssid: string,password:string): Observable<any>  {
+    // La ruta final será: http://smartbedding.local/api/auth
+
+    return this.http.post<ApiResponse<string>>(`${this.API_URL}/connectivity`, { ssid, password });
+  }
+
 }
