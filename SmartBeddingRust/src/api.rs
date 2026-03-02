@@ -18,6 +18,7 @@ use chrono::Local;
 use uuid::Uuid;
 use async_trait::async_trait;
 use std::process::Command;
+use tokio::task;
 
 use std::path::Path;
 use walkdir::{WalkDir, DirEntry};
@@ -37,6 +38,24 @@ pub struct ApiResponse<T> {
     pub timestamp: String,
     pub data: Option<T>,
     pub message: Option<String>,
+}
+
+// AÑADE ESTO PARA SOLUCIONAR E0599
+impl<T> ApiResponse<T> {
+    pub fn new(result: bool, data: Option<T>, message: Option<String>) -> Self {
+        Self {
+            result,
+            timestamp: Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string(),
+            data,
+            message,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct WifiCredentials {
+    pub ssid: String,
+    pub password: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -161,10 +180,10 @@ pub async fn start_api(
     let app = Router::new()
         .route("/auth", post(check_handler))
         .route("/verify", get(verify_handler))
-        .route("/connectivity", get(connectivity_handler))
+        .route("/connectivity", get(connectivity_handler).post(wifi_connect_handler))
         .route("/storage", get(storage_handler).delete(storage_delete_handler))
-        .route("/pressure", get(pressure_handler))
-        .route("/accel", get(accel_handler))
+        // .route("/pressure", get(pressure_handler))
+        // .route("/accel", get(accel_handler))
         .layer(cors)
         .layer(Extension(shared_state.clone()))
         .with_state(shared_state);
@@ -267,6 +286,84 @@ async fn connectivity_handler(
     });
 
     Json(ApiResponse { result: true, timestamp: now, data: Some(data), message: None })
+}
+
+pub async fn wifi_connect_handler(
+    Json(payload): Json<WifiCredentials>,
+) -> impl IntoResponse {
+    // 1. Validaciones de seguridad básicas
+    if payload.ssid.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::<()>::new(false, None, Some("SSID no puede estar vacío".into())))
+        ).into_response();
+    }
+
+    if let Some(ref pwd) = payload.password {
+        if !pwd.is_empty() && pwd.len() < 8 {
+            return (StatusCode::BAD_REQUEST, Json(ApiResponse::<()>::new(
+                false, None, Some("La contraseña WPA requiere al menos 8 caracteres".into())
+            ))).into_response();
+        }
+    }
+
+    // 2. Verificar existencia de la red antes de intentar
+    let scan_output = Command::new("nmcli")
+        .args(["-t", "-f", "SSID", "dev", "wifi", "list", "--rescan", "yes"])
+        .output();
+
+    let exists = match scan_output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.lines().any(|line| line.trim() == payload.ssid)
+        }
+        Err(_) => false,
+    };
+
+    if !exists {
+        return (StatusCode::NOT_FOUND, Json(ApiResponse::<()>::new(
+            false, None, Some(format!("La red '{}' no fue encontrada.", payload.ssid))
+        ))).into_response();
+    }
+
+    // 3. Ejecución en Background con lógica de recuperación
+    let ssid = payload.ssid.clone();
+    let password = payload.password.clone();
+
+    tokio::task::spawn(async move {
+        // Espera para que el cliente reciba el OK
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+        println!("[WIFI] Intentando conectar a {} (timeout 10s)...", ssid);
+
+        let mut cmd = Command::new("nmcli");
+        // --wait 10 es clave para que el comando falle si no obtiene IP rápido
+        cmd.args(["--wait", "10", "device", "wifi", "connect", &ssid]);
+        
+        if let Some(pwd) = password {
+            if !pwd.is_empty() { cmd.arg("password").arg(pwd); }
+        }
+
+        match cmd.output() {
+            Ok(out) if out.status.success() => {
+                println!("[WIFI] Conexión exitosa a {}", ssid);
+            }
+            _ => {
+                println!("[WIFI] Error al conectar. Ejecutando rollback...");
+                // Rollback: Desconectar el intento fallido y dejar que NetworkManager 
+                // re-conecte a la red conocida con mejor señal
+                let _ = Command::new("nmcli").args(["device", "disconnect", "wlan0"]).output();
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let _ = Command::new("nmcli").args(["device", "up", "wlan0"]).output();
+            }
+        }
+    });
+
+    // Respuesta inmediata con 200 OK
+    (StatusCode::OK, Json(ApiResponse::<()>::new(
+        true, None, 
+        Some(format!("Intentando conectar a '{}'. Si falla, SmartBedding volverá a la red actual.", payload.ssid))
+    ))).into_response()
 }
 
 async fn storage_handler(_user: AuthUser) -> Json<ApiResponse<Value>> {
