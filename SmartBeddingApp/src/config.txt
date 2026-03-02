@@ -1,0 +1,1 @@
+rsync -avz --delete /home/desarrollo-robbo/Documentos/PruebaEnC/SmartBeddingApp/dist/smart-bedding-system/browser/ gibic@192.168.0.112:/var/www/html/smartbedding-app/

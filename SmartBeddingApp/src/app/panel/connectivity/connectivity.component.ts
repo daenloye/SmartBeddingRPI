@@ -19,6 +19,12 @@ export class ConnectivityComponent implements OnInit, OnDestroy {
   refreshing: boolean = false;
   private refreshSub?: Subscription;
 
+  //Rutas
+  SSID: string = "";
+  password: string = ""
+
+  selectedRegister: any = null;
+
   constructor(private apiService: ApiService) { }
 
   ngOnInit(): void {
@@ -46,4 +52,18 @@ export class ConnectivityComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.refreshSub?.unsubscribe();
   }
+
+  openModal(Index: number) {
+    if (!this.data) return;
+
+    this.selectedRegister = this.data.Networks[Index];
+
+    console.log("Index del folder seleccionado:", Index);
+    const modal = document.getElementById('connectionModal') as HTMLDialogElement;
+    if (modal) {
+      modal.showModal();
+    }
+  }
+
+
 }

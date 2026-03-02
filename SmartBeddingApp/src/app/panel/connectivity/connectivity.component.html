@@ -97,7 +97,9 @@
                 <span class="text-[9px] bg-slate-100 text-[#2D3648] font-bold px-2 py-1 rounded-full uppercase tracking-tighter">Red Actual</span>
               } @else {
                 <span class="text-[10px] text-slate-300 font-mono">{{ net.Strength }}%</span>
-                <button class="btn btn-ghost btn-xs text-[#2D3648] font-light opacity-60 hover:opacity-100">Conectar</button>
+                <button class="btn btn-ghost btn-xs text-[#2D3648] font-light opacity-60 hover:opacity-100" (click)="openModal($index) ">
+                  Conectar
+                </button>
               }
             </div>
           </div>
@@ -109,4 +111,73 @@
       }
     </div>
   </div>
+
+<dialog id="connectionModal" class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box border-t-4 border-primary shadow-2xl">
+    <form method="dialog">
+      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+    </form>
+
+    <div class="flex items-center gap-3 text-primary">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+      </svg>
+      <div>
+        <h3 class="text-lg font-black uppercase tracking-tight">Configurar Red</h3>
+        <p class="text-[10px] opacity-70 font-bold tracking-widest">WIFI PROVISIONING</p>
+      </div>
+    </div>
+
+    <div class="py-6 space-y-5">
+      <div class="bg-primary/5 p-4 rounded-xl border border-primary/10 flex items-center justify-between">
+        <div>
+          <p class="text-[10px] text-slate-400 uppercase font-bold">Punto de Acceso</p>
+          <p class="text-lg font-mono font-bold text-slate-700">
+            {{ selectedRegister?.ssid || 'Buscando red...' }}
+          </p>
+        </div>
+        <div class="badge badge-primary badge-outline font-bold">
+          {{ selectedRegister?.signal }}%
+        </div>
+      </div>
+
+      <div class="form-control w-full">
+        <label class="label">
+          <span class="label-text-alt font-bold text-slate-500">CONTRASEÑA DEL WIFI</span>
+        </label>
+        <div class="relative">
+          <input
+            type="password"
+            placeholder="Introduce la clave de red"
+            class="input input-bordered w-full bg-slate-50 focus:bg-white transition-all pl-10"
+          />
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 absolute left-3 top-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+      </div>
+
+      <p class="text-[11px] text-slate-400 italic text-center leading-tight">
+        Al conectar, SmartBedding intentará unirse a la red, por lo que este panel puede quedar sin conexión. SmartBedding volverá a esta red en caso de no conectarse de forma satisfactoria.<br><br>
+        Asegúrate de que la clave sea correcta y de conectarte a la nueva red.
+      </p>
+    </div>
+
+    <div class="modal-action">
+      <form method="dialog" class="flex w-full justify-between items-center">
+        <button class="btn btn-ghost btn-sm font-bold text-slate-400">Cancelar</button>
+
+        <button class="btn btn-primary btn-sm px-8 text-white shadow-lg shadow-primary/30">
+          Establecer Conexión
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <form method="dialog" class="modal-backdrop bg-slate-900/60 backdrop-blur-md">
+    <button>close</button>
+  </form>
+</dialog>
+
+
 </div>
