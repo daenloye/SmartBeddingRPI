@@ -1,17 +1,20 @@
 import { ApiLogin } from './../interfaces/api-login';
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 import { ApiResponse } from '../interfaces/api-response';
 import { Router } from '@angular/router';
+import { environment } from '../../environments/environment.development';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private readonly API_URL = 'http://192.168.0.112:8080';
+  // CAMBIO CLAVE: Usamos la ruta relativa que configuramos en Nginx.
+  // Al no poner "http://...", el navegador usará automáticamente el dominio actual.
+  private readonly API_URL = environment.apiUrl;
+
   private http = inject(HttpClient);
   private router = inject(Router);
 
-// Este método lo llamaremos desde el Guard o manualmente
   verifyToken(): Observable<ApiResponse<any>> {
     return this.http.get<ApiResponse<any>>(`${this.API_URL}/verify`).pipe(
       tap(res => {
@@ -21,6 +24,7 @@ export class ApiService {
   }
 
   login(code: string): Observable<ApiResponse<string>> {
+    // La ruta final será: http://smartbedding.local/api/auth
     return this.http.post<ApiResponse<string>>(`${this.API_URL}/auth`, { code }).pipe(
       tap(res => {
         if (res.result && res.data) {
@@ -59,6 +63,4 @@ export class ApiService {
   clearStorage(): Observable<any> {
     return this.http.delete<ApiResponse<any>>(`${this.API_URL}/storage`);
   }
-
-
 }
