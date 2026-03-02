@@ -73,4 +73,30 @@ export class StorageComponent {
       modal.showModal();
     }
   }
+
+  // Suma de todos los totalUsedMb de los registros
+  getTotalRegistersMb(): number {
+    return this.data?.registers.reduce((acc, reg) => acc + reg.totalUsedMb, 0) || 0;
+  }
+
+  // % de la SD que ocupan tus registros
+  getRegistersPercentage(): number {
+    if (!this.data) return 0;
+    return (this.getTotalRegistersMb() / this.data.system.diskTotalMb) * 100;
+  }
+
+  // % total ocupado (Total - Libre)
+  getUsedPercentage(): number {
+    if (!this.data) return 0;
+    const used = this.data.system.diskTotalMb - this.data.system.diskFreeMb;
+    return (used / this.data.system.diskTotalMb) * 100;
+  }
+
+  // % de "Otros" (Lo ocupado total menos lo que sabemos que son registros)
+  getSystemOtherPercentage(): number {
+    const totalUsed = this.getUsedPercentage();
+    const regUsed = this.getRegistersPercentage();
+    return Math.max(0, totalUsed - regUsed);
+  }
+
 }

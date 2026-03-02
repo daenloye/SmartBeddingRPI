@@ -5,28 +5,84 @@
     <span class="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Memoria SD</span>
   </div>
 
-  <div class="bg-white rounded-[2rem] p-6 border border-slate-50 shadow-sm">
-    <div class="flex justify-between items-end mb-4">
-      <div>
-        <p class="text-3xl font-light text-[#2D3648]">65<span class="text-sm ml-1 opacity-50">%</span></p>
-        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Espacio en uso</p>
-      </div>
-      <div class="text-right text-[10px] text-slate-400 font-medium">
-        <p>Libre: <span class="text-[#2D3648]">12.4 GB</span></p>
-        <p>Total: 32 GB</p>
-      </div>
-    </div>
+  @if (data && data.system) {
+    <div class="bg-white rounded-[2rem] p-8 border border-slate-50 shadow-sm transition-all duration-500">
+      <div class="flex justify-between items-start mb-6">
+        <div>
+          <p class="text-4xl font-black tracking-tighter transition-colors"
+            [class.text-error]="getUsedPercentage() >= 90"
+            [class.text-[#1e293b]]="getUsedPercentage() < 90">
+            {{ getUsedPercentage() | number:'1.1-1' }}<span class="text-sm ml-1 opacity-40">%</span>
+          </p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Ocupación Física SD</p>
+        </div>
 
-    <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-      <div class="bg-[#2D3648] h-full rounded-full transition-all duration-1000" style="width: 65%"></div>
+        <div class="text-right font-mono">
+          <p class="text-[10px] text-slate-400 uppercase tracking-wider">
+            Ocupado: <span class="text-[#1e293b] font-bold">{{ ((data.system.diskTotalMb - data.system.diskFreeMb) / 1024) | number:'1.2-2' }} GB</span>
+          </p>
+          <p class="text-[10px] text-slate-400 uppercase tracking-wider">
+            Libre: <span class="text-[#1e293b] font-bold">{{ (data.system.diskFreeMb / 1024) | number:'1.2-2' }} GB</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="relative w-full bg-slate-100 h-3 rounded-full overflow-hidden flex">
+
+        <div class="h-full transition-all duration-1000"
+            [style.width.%]="getRegistersPercentage()"
+            [class.bg-error]="getTotalRegistersMb() > data.system.storageLimitMb"
+            [class.bg-[#1e293b]]="getTotalRegistersMb() <= data.system.storageLimitMb">
+        </div>
+
+        <div class="h-full bg-slate-300 transition-all duration-1000"
+            [style.width.%]="getSystemOtherPercentage()"></div>
+
+        <div class="absolute h-full w-0.5 bg-error/50 z-10"
+            [style.left.%]="(data.system.storageLimitMb / data.system.diskTotalMb) * 100">
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-4 mt-4 items-center">
+        <div class="flex items-center gap-1.5">
+          <div class="w-2 h-2 rounded-full"
+              [class.bg-error]="getTotalRegistersMb() > data.system.storageLimitMb"
+              [class.bg-[#1e293b]]="getTotalRegistersMb() <= data.system.storageLimitMb"></div>
+          <span class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter font-mono">
+            Registros: {{ (getTotalRegistersMb() / 1024) | number:'1.2-2' }} GB
+          </span>
+        </div>
+
+        @if (getTotalRegistersMb() > data.system.storageLimitMb) {
+          <span class="badge badge-error badge-xs text-[8px] font-black text-white px-2">LÍMITE EXCEDIDO</span>
+        }
+
+        @if (getUsedPercentage() >= 90) {
+          <span class="ml-auto text-[9px] text-error font-black uppercase flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+            </svg>
+            SD Crítica
+          </span>
+        }
+      </div>
     </div>
-  </div>
+  } @else {
+    <div class="bg-white rounded-[2rem] p-8 border border-slate-50 shadow-sm animate-pulse">
+      <div class="h-8 w-32 bg-slate-100 rounded mb-4"></div>
+      <div class="w-full bg-slate-100 h-3 rounded-full"></div>
+      <div class="flex gap-4 mt-4">
+        <div class="h-2 w-16 bg-slate-100 rounded"></div>
+        <div class="h-2 w-16 bg-slate-100 rounded"></div>
+      </div>
+    </div>
+  }
 
   <div class="space-y-4">
     <div class="px-2 flex justify-between items-center">
       <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Registros Guardados</span>
       <button class="btn btn-ghost btn-xs text-error font-light opacity-70 hover:bg-error/10">
-        Borrar todo
+        Borrar sesiones antiguas
       </button>
     </div>
 
@@ -51,6 +107,9 @@
           </div>
           <div class="flex items-center gap-2">
               <span class="text-[9px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-bold uppercase">{{(folder.totalUsedMb/ 1024) | number:'1.2-2' }} Gb</span>
+              @if(index===0){
+                <span class="badge badge-success badge-xs text-[8px] font-bold text-white px-2">Actual</span>
+              }
           </div>
         </div>
       }
@@ -58,119 +117,119 @@
     </div>
   </div>
 
-<dialog id="informationModal" class="modal">
-  <div class="modal-box w-11/12 md:max-w-4xl bg-white p-0 overflow-hidden">
-<div class="relative bg-white p-8 border-b border-slate-100">
-  <form method="dialog">
-    <button class="btn btn-sm btn-ghost text-slate-400 hover:text-slate-900 absolute right-6 top-6 transition-colors">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    </button>
-  </form>
+  <dialog id="informationModal" class="modal">
+    <div class="modal-box w-11/12 md:max-w-4xl bg-white p-0">
+      <div class="relative bg-white p-8 border-b border-slate-100">
+        <form method="dialog">
+          <button class="btn btn-sm btn-ghost text-slate-400 hover:text-slate-900 absolute right-6 top-6 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </form>
 
-  <div class="flex flex-col gap-1">
-    <div class="flex items-center gap-3">
-      <h3 class="text-2xl font-extrabold tracking-tight text-[#1e293b] uppercase">
-        {{selectedRegister?.name}}
-      </h3>
-    </div>
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center gap-3">
+            <h3 class="text-2xl font-extrabold tracking-tight text-[#1e293b] uppercase">
+              {{selectedRegister?.name}}
+            </h3>
+          </div>
 
-    <div class="flex flex-col md:flex-row md:items-center gap-3 mt-3">
-      <div class="flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-md">
-        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fecha</span>
-        <span class="text-xs font-semibold text-slate-600">{{selectedRegister?.created}}</span>
-      </div>
+          <div class="flex flex-col md:flex-row md:items-center gap-3 mt-3">
+            <div class="flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-md">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fecha</span>
+              <span class="text-xs font-semibold text-slate-600">{{selectedRegister?.created}}</span>
+            </div>
 
-      <div class="flex items-center gap-2">
-        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Directorio</span>
-        <span class="text-xs font-medium text-slate-500 font-mono truncate max-w-xs">
-          {{selectedRegister?.path}}
-        </span>
-      </div>
-    </div>
-  </div>
-</div>
-
-    <div class="p-6">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div class="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-          <p class="text-blue-600 text-xs uppercase font-bold tracking-wider">Total Sesión</p>
-          <p class="text-2xl font-black text-blue-900">
-            {{ ((selectedRegister?.totalUsedMb || 0) / 1024) | number:'1.3-3' }} GB
-          </p>
-        </div>
-        <div class="bg-purple-50 p-4 rounded-2xl border border-purple-100">
-          <p class="text-purple-600 text-xs uppercase font-bold tracking-wider"># Archivos</p>
-          <p class="text-2xl font-black text-purple-900">{{ selectedRegister?.jsonFiles?.length }}</p>
-        </div>
-        <div class="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
-          <p class="text-emerald-600 text-xs uppercase font-bold tracking-wider">Duración Estima</p>
-          <p class="text-2xl font-black text-emerald-900">
-            {{ Math.floor((selectedRegister?.jsonFiles?.length || 0) / 60) }}h {{ (selectedRegister?.jsonFiles?.length || 0) % 60 }}m
-          </p>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Directorio</span>
+              <span class="text-xs font-medium text-slate-500 font-mono truncate max-w-xs">
+                {{selectedRegister?.path}}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-        <div>
-          <h4 class="font-bold text-[#1e293b] mb-4 flex justify-between items-center">
-            <span>📄 Datos (.json)</span>
-            <span class="badge badge-ghost">{{selectedRegister?.jsonUsedMb}} MB</span>
-          </h4>
-          <div class="max-h-60 overflow-y-auto pr-2 custom-scroll">
-            <table class="table table-xs w-full">
-              <thead>
-                <tr class="text-slate-400">
-                  <th>Nombre</th>
-                  <th class="text-right">Peso</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (file of selectedRegister?.jsonFiles; track file.name) {
-                  <tr class="hover:bg-slate-50">
-                    <td class="font-mono text-[11px] text-slate-600">{{file.name}}</td>
-                    <td class="text-right font-bold text-slate-400">{{file.sizeMb}} MB</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div class="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+            <p class="text-blue-600 text-xs uppercase font-bold tracking-wider">Total Sesión</p>
+            <p class="text-2xl font-black text-blue-900">
+              {{ ((selectedRegister?.totalUsedMb || 0) / 1024) | number:'1.3-3' }} GB
+            </p>
+          </div>
+          <div class="bg-purple-50 p-4 rounded-2xl border border-purple-100">
+            <p class="text-purple-600 text-xs uppercase font-bold tracking-wider"># Archivos</p>
+            <p class="text-2xl font-black text-purple-900">{{ selectedRegister?.jsonFiles?.length }}</p>
+          </div>
+          <div class="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+            <p class="text-emerald-600 text-xs uppercase font-bold tracking-wider">Duración Estima</p>
+            <p class="text-2xl font-black text-emerald-900">
+              {{ Math.floor((selectedRegister?.jsonFiles?.length || 0) / 60) }}h {{ (selectedRegister?.jsonFiles?.length || 0) % 60 }}m
+            </p>
           </div>
         </div>
 
-        <div>
-          <h4 class="font-bold text-[#1e293b] mb-4 flex justify-between items-center">
-            <span>Audio (.wav)</span>
-            <span class="badge badge-ghost">{{ ((selectedRegister?.wavUsedMb || 0)) | number:'1.2-2' }} Mb</span>
-          </h4>
-          <div class="max-h-60 overflow-y-auto pr-2 custom-scroll">
-            <table class="table table-xs w-full">
-              <thead>
-                <tr class="text-slate-400">
-                  <th>Nombre</th>
-                  <th class="text-right">Peso</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (file of selectedRegister?.wavFiles; track file.name) {
-                  <tr class="hover:bg-slate-50">
-                    <td class="font-mono text-[11px] text-slate-600">{{file.name}}</td>
-                    <td class="text-right font-bold text-slate-400">{{file.sizeMb}} MB</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
 
+          <div>
+            <h4 class="font-bold text-[#1e293b] mb-4 flex justify-between items-center">
+              <span>📄 Datos (.json)</span>
+              <span class="badge badge-ghost">{{selectedRegister?.jsonUsedMb}} MB</span>
+            </h4>
+            <div class="max-h-60 overflow-y-auto pr-2 custom-scroll">
+              <table class="table table-xs w-full">
+                <thead>
+                  <tr class="text-slate-400">
+                    <th>Nombre</th>
+                    <th class="text-right">Peso</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (file of selectedRegister?.jsonFiles; track file.name) {
+                    <tr class="hover:bg-slate-50">
+                      <td class="font-mono text-[11px] text-slate-600">{{file.name}}</td>
+                      <td class="text-right font-bold text-slate-400">{{file.sizeMb}} MB</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="font-bold text-[#1e293b] mb-4 flex justify-between items-center">
+              <span>Audio (.wav)</span>
+              <span class="badge badge-ghost">{{ ((selectedRegister?.wavUsedMb || 0)) | number:'1.2-2' }} Mb</span>
+            </h4>
+            <div class="max-h-60 overflow-y-auto pr-2 custom-scroll">
+              <table class="table table-xs w-full">
+                <thead>
+                  <tr class="text-slate-400">
+                    <th>Nombre</th>
+                    <th class="text-right">Peso</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (file of selectedRegister?.wavFiles; track file.name) {
+                    <tr class="hover:bg-slate-50">
+                      <td class="font-mono text-[11px] text-slate-600">{{file.name}}</td>
+                      <td class="text-right font-bold text-slate-400">{{file.sizeMb}} MB</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="p-4 bg-slate-50 text-center">
+        <p class="text-[10px] text-slate-400 uppercase tracking-widest">Smart Bedding System - Storage Inspector</p>
       </div>
     </div>
-
-    <div class="p-4 bg-slate-50 text-center">
-      <p class="text-[10px] text-slate-400 uppercase tracking-widest">Smart Bedding System - Storage Inspector</p>
-    </div>
-  </div>
-</dialog>
+  </dialog>
 
 </div>
