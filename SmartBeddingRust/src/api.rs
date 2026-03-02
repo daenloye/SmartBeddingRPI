@@ -19,6 +19,10 @@ use uuid::Uuid;
 use async_trait::async_trait;
 use std::process::Command;
 
+use std::path::Path;
+use walkdir::{WalkDir, DirEntry};
+use sysinfo::{Disks, Disk};
+
 // =============================
 // STRUCTS
 // =============================
@@ -241,14 +245,76 @@ async fn storage_handler(
     _user: AuthUser, 
 ) -> Json<ApiResponse<Value>> {
     let now = Local::now().format("%Y/%m/%d %H:%M:%S%.3f").to_string();
+    
+    // 1. Calcular espacio en disco (S.O.)
+    let mut disks = Disks::new_with_refreshed_list();
+    let (total_mb, free_mb) = disks.iter()
+        .find(|disk| Path::new(CONFIG.storage_path).starts_with(disk.mount_point()))
+        .map(|disk| (
+            disk.total_space() / 1024 / 1024, 
+            disk.available_space() / 1024 / 1024
+        ))
+        .unwrap_or((0, 0));
+
+    // 2. Escanear Carpeta de Storage
+    let mut total_size_bytes: u64 = 0;
+    let mut json_count = 0;
+    let mut wav_count = 0;
+    let mut session_folders = Vec::new();
+
+    // Escaneamos la carpeta definida en CONFIG
+    for entry in WalkDir::new(CONFIG.storage_path)
+        .min_depth(1)
+        .max_depth(2) // Ajusta si tus sesiones tienen más subniveles
+        .into_iter()
+        .filter_map(|e| e.ok()) 
+    {
+        let path = entry.path();
+        let metadata = entry.metadata().unwrap();
+
+        if metadata.is_file() {
+            total_size_bytes += metadata.len();
+            match path.extension().and_then(|s| s.to_str()) {
+                Some("json") => json_count += 1,
+                Some("wav") => wav_count += 1,
+                _ => {}
+            }
+        } else if metadata.is_dir() {
+            // Si es una carpeta, la contamos como una sesión
+            session_folders.push(json!({
+                "name": entry.file_name().to_string_lossy(),
+                "path": path.to_string_lossy(),
+                "created": metadata.created().ok()
+                    .and_then(|t| Some(chrono::DateTime::<Local>::from(t).format("%Y/%m/%d %H:%M").to_string()))
+                    .unwrap_or_else(|| "---".into())
+            }));
+        }
+    }
+
+    let used_mb = total_size_bytes / 1024 / 1024;
+
     let data = json!({
-        "freeMb": 512,
-        "totalMb": 10240,
-        "registeredSessions": [
-            {"date": now, "recordTime": 600, "sizeMb": 128}
-        ]
+        "system": {
+            "diskTotalMb": total_mb,
+            "diskFreeMb": free_mb,
+            "storageLimitMb": CONFIG.storage_max_mb,
+        },
+        "stats": {
+            "totalUsedMb": used_mb,
+            "jsonFiles": json_count,
+            "wavFiles": wav_count,
+            "totalFiles": json_count + wav_count,
+            "usagePercentage": (used_mb as f64 / CONFIG.storage_max_mb as f64 * 100.0).round()
+        },
+        "registeredSessions": session_folders
     });
-    Json(ApiResponse { result: true, timestamp: now, data: Some(data), message: None })
+
+    Json(ApiResponse { 
+        result: true, 
+        timestamp: now, 
+        data: Some(data), 
+        message: None 
+    })
 }
 
 async fn pressure_handler(

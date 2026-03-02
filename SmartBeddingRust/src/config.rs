@@ -2,6 +2,7 @@ pub struct SystemConfig {
     pub debug_mode: bool,
     pub storage_enabled: bool,
     pub storage_path: &'static str,
+    pub storage_max_mb: u64,
 
     // Audio
     pub audio_sample_rate: u32,
@@ -27,6 +28,7 @@ pub const CONFIG: SystemConfig = SystemConfig {
     debug_mode: true,
     storage_enabled: true,
     storage_path: "/home/gibic/PruebaEnC/SmartBeddingRust/data_storage",
+    storage_max_mb: 8000, // 8 GB
 
     audio_sample_rate: 44100,
     audio_channels: 2,
