@@ -64,6 +64,7 @@ async fn main() {
 
     // 3. Hardware
     let shared_i2c = Arc::new(Mutex::new(I2c::new().expect("I2C Fail")));
+    let env_module = Arc::new(environment::EnvironmentModule::new(Arc::clone(&shared_i2c)));
     let acc_module = Arc::new(AccelerationModule::new(Bus::Spi0, SlaveSelect::Ss0));
     let pressure_sensor = Arc::new(RwLock::new(
         PressureMatrix::init(Arc::clone(&shared_i2c)).expect("Pressure Fail")
@@ -110,6 +111,29 @@ async fn main() {
                     measure: Arc::new(s.buffers[s.latest_idx]),
                 });
             }
+            print!("\r[{}] [LIVE] Ticks: {:>4}/1200 | OK", Local::now().format("%H:%M:%S"), ticks + 1);
+            io::stdout().flush().ok();
+        }
+
+        // 2. Bloque de 1 segundo (Presión y Ambiente)
+        if (ticks + 1) % (20*20) == 0 {
+            // Presión
+            if let Ok(s) = pressure_sensor.read() {
+                current_data.pressure.push(PressureSample {
+                    timestamp: ts.clone(),
+                    measure: Arc::new(s.buffers[s.latest_idx]),
+                });
+            }
+
+            // --- CORRECCIÓN AQUÍ: Captura de Ambiente ---
+            let (temp, hum) = env_module.get_latest_avg(); // Extraemos el promedio actual
+            current_data.environment.push(storage::EnvironmentSample {
+                timestamp: ts.clone(),
+                temperature: temp,
+                humidity: hum,
+            });
+            // --------------------------------------------
+
             print!("\r[{}] [LIVE] Ticks: {:>4}/1200 | OK", Local::now().format("%H:%M:%S"), ticks + 1);
             io::stdout().flush().ok();
         }
