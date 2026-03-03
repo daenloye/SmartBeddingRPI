@@ -250,11 +250,18 @@
           </div>
           <div class="overflow-x-auto w-full">
             <table class="table table-xs w-full">
-              <thead><tr class="text-slate-400 border-slate-100 uppercase text-[9px]"><th>ID</th><th class="text-right">Peso</th></tr></thead>
+              <thead>
+                <tr class="text-slate-400 border-slate-100 uppercase text-[9px]">
+                  <th>ID</th>
+                  <th>Fecha</th>
+                  <th class="text-right">Peso</th>
+                </tr>
+              </thead>
               <tbody class="divide-y divide-slate-50">
                 @for (file of selectedRegister?.jsonFiles; track file.name) {
                   <tr class="hover:bg-blue-50/50 transition-colors">
                     <td class="font-mono text-[10px] text-slate-500 py-2">{{file.name}}</td>
+                    <td class="text-[10px] text-slate-400">{{file.created}}</td>
                     <td class="text-right font-black text-slate-400 text-[10px]">{{file.sizeMb}} MB</td>
                   </tr>
                 }
@@ -275,11 +282,18 @@
           </div>
           <div class="overflow-x-auto w-full">
             <table class="table table-xs w-full">
-              <thead><tr class="text-slate-400 border-slate-100 uppercase text-[9px]"><th>Archivo</th><th class="text-right">Peso</th></tr></thead>
+              <thead>
+                <tr class="text-slate-400 border-slate-100 uppercase text-[9px]">
+                  <th>ID</th>
+                  <th>Fecha</th>
+                  <th class="text-right">Peso</th>
+                </tr>
+              </thead>
               <tbody class="divide-y divide-slate-50">
                 @for (file of selectedRegister?.audioFiles; track file.name) {
                   <tr class="hover:bg-indigo-50/50 transition-colors">
                     <td class="font-mono text-[10px] text-slate-500 py-2">{{file.name}}</td>
+                    <td class="text-[10px] text-slate-400">{{file.created}}</td>
                     <td class="text-right font-black text-slate-400 text-[10px]">{{file.sizeMb}} MB</td>
                   </tr>
                 }

@@ -68,6 +68,7 @@ struct FileInfo {
     name: String,
     #[serde(rename = "sizeMb")]
     size_mb: f64,
+    created: String,
 }
 
 #[derive(Serialize)]
@@ -412,10 +413,19 @@ async fn storage_handler(_user: AuthUser) -> Json<ApiResponse<Value>> {
                         }
                     });
 
-                    let size_mb = e.metadata().map(|m| m.len() as f64 / 1024.0 / 1024.0).unwrap_or(0.0);
+                    let metadata = e.metadata().ok();
+
+                    let size_mb = metadata.as_ref().map(|m| m.len() as f64 / 1024.0 / 1024.0).unwrap_or(0.0);
+
+                    let file_created = metadata
+                                .and_then(|m| m.created().ok())
+                                .map(|t| chrono::DateTime::<Local>::from(t).format("%Y/%m/%d %H:%M:%S").to_string())
+                                .unwrap_or_else(|| "---".into());
+
                     let file_info = FileInfo {
                         name: e.file_name().to_string_lossy().to_string(),
                         size_mb: (size_mb * 100.0).round() / 100.0, // Redondear a 2 decimales
+                        created: file_created,
                     };
 
                     match path.extension().and_then(|s| s.to_str()) {
