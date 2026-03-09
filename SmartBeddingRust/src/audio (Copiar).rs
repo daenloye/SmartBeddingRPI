@@ -2,8 +2,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU32, Ordering}};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use std::process::{Command, Stdio};
-use std::io::Write;
+use std::process::{Command, Stdio}; // <--- Nuevo: Para el proceso hijo
+use std::io::Write;                 // <--- Nuevo: Para escribir al pipe
 use chrono::Local;
 use tokio::sync::mpsc as tokio_mpsc;
 use crate::storage::AudioMetrics;
@@ -34,7 +34,7 @@ impl AudioModule {
 
         std::thread::spawn(move || {
             let host = cpal::default_host();
-            let device = host.default_input_device().expect("No se encontró dispositivo de entrada");
+            let device = host.default_input_device().expect("No I2S device");
             
             let config = cpal::StreamConfig {
                 channels: CONFIG.audio_channels,
@@ -42,7 +42,7 @@ impl AudioModule {
                 buffer_size: cpal::BufferSize::Default,
             };
 
-            audio_log(&format!("Iniciando Hardware: {}Hz, {} canales", 
+            audio_log(&format!("Configurando Hardware: {}Hz, {} canales", 
                 CONFIG.audio_sample_rate, CONFIG.audio_channels));
 
             let stream = device.build_input_stream(
@@ -50,16 +50,16 @@ impl AudioModule {
                 move |data: &[f32], _| { let _ = tx.send(data.to_vec()); },
                 |err| eprintln!("Audio Error: {}", err),
                 None
-            ).expect("Error: El hardware no soporta la configuración de audio actual"); 
+            ).expect("Error: El hardware no soporta la frecuencia de CONFIG"); 
 
             stream.play().unwrap();
 
             while running.load(Ordering::SeqCst) {
                 let n = count.fetch_add(1, Ordering::SeqCst);
-                let filename_opus = storage_dir.join(format!("audio_{}.opus", n));
-                let filename_wav = storage_dir.join(format!("audio_{}.wav", n));
+                // Cambiamos la extensión a .opus
+                let filename = storage_dir.join(format!("audio_{}.opus", n));
                 
-                // --- MOTOR DUAL FFmpeg (OPUS + WAV) ---
+                // --- INICIO DE MOTOR OPUS ---
                 let mut child = Command::new("ffmpeg")
                     .args([
                         "-y",
@@ -67,17 +67,11 @@ impl AudioModule {
                         "-ar", &CONFIG.audio_sample_rate.to_string(),
                         "-ac", &CONFIG.audio_channels.to_string(),
                         "-i", "pipe:0",
-                        // Mapeo Salida 1: OPUS
-                        "-map", "0:a",
-                        "-c:a:0", "libopus",
-                        "-b:a:0", "64k",
-                        "-vbr", "off",
+                        "-c:a", "libopus",
+                        "-b:a", "64k",          // 32kbps es ultra ligero pero suena bien
+                        "-vbr", "off",           // Bitrate variable para ahorrar más
                         "-compression_level", "10",
-                        filename_opus.to_str().unwrap(),
-                        // Mapeo Salida 2: WAV (Fidelidad total)
-                        "-map", "0:a",
-                        "-c:a:1", "pcm_s16le",
-                        filename_wav.to_str().unwrap()
+                        filename.to_str().unwrap()
                     ])
                     .stdin(Stdio::piped())
                     .stderr(Stdio::null()) 
@@ -97,7 +91,7 @@ impl AudioModule {
                     
                     while start_block.elapsed().as_secs() < CONFIG.audio_block_duration_s && running.load(Ordering::SeqCst) {
                         if let Ok(samples) = rx.recv_timeout(Duration::from_millis(100)) {
-                            // 1. ANÁLISIS DE MÉTRICAS
+                            // 1. ANÁLISIS DE MÉTRICAS (Igual que antes)
                             for &s in &samples {
                                 let abs_s = s.abs();
                                 sum_sq += s * s;
@@ -108,26 +102,23 @@ impl AudioModule {
                                 count_samples += 1;
                             }
 
-                            // 2. ENVÍO AL COMPRESOR (Casting seguro de f32 a bytes)
+                            // 2. ENVÍO AL COMPRESOR (Conversión de f32 a bytes)
                             let bytes: &[u8] = unsafe {
                                 std::slice::from_raw_parts(
                                     samples.as_ptr() as *const u8,
                                     samples.len() * std::mem::size_of::<f32>(),
                                 )
                             };
-                            
-                            if stdin.write_all(bytes).is_err() { 
-                                break; 
-                            }
+                            if stdin.write_all(bytes).is_err() { break; }
                         }
                     }
 
-                    // Cerrar pipe y esperar a que FFmpeg finalice los archivos
+                    // Finalizamos el proceso de FFmpeg
                     drop(stdin);
                     let _ = ffmpeg_process.wait();
 
-                    // 3. CÁLCULO FINAL DE MÉTRICAS DEL BLOQUE
                     let rms = (sum_sq / count_samples.max(1) as f32).sqrt();
+                    
                     let metrics = AudioMetrics {
                         db_avg: 20.0 * rms.max(1e-6).log10(),
                         db_max: 20.0 * max_abs.max(1e-6).log10(),
@@ -138,9 +129,9 @@ impl AudioModule {
                     };
                     
                     let _ = metrics_tx.blocking_send(metrics);
-                    audio_log(&format!("✓ Bloque {} guardado (OPUS + WAV) y analizado.", n));
+                    audio_log(&format!("✓ Bloque {} guardado en OPUS y analizado.", n));
                 } else {
-                    eprintln!("[ERROR] FFmpeg falló al iniciar. ¿Está instalado?");
+                    eprintln!("[ERROR] FFmpeg no está instalado o no se pudo iniciar.");
                     std::thread::sleep(Duration::from_secs(2));
                 }
             }

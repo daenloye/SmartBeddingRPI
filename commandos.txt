@@ -42,7 +42,7 @@ rsync -avz \
 --exclude='SmartBeddingRust/target/release/*' \
 --exclude='Logs/' \
 /home/desarrollo-robbo/Documentos/PruebaEnC/ \
-gibic@192.168.0.112:/home/gibic/PruebaEnC/
+gibic@192.168.0.110:/home/gibic/PruebaEnC/
 
 
 
@@ -51,6 +51,13 @@ gibic@192.168.0.112:/home/gibic/PruebaEnC/
   --include='*.json' \
   --exclude='*' \
   gibic@192.168.0.112:/home/gibic/PruebaEnC/SmartBeddingRust/data_storage/ \
+  /home/desarrollo-robbo/Documentos/PruebaEnC/DataStorage/
+
+  rsync -avz \
+  --include='*/' \
+  --include='*.wav' \
+  --include='*.opus' \
+  gibic@192.168.0.110:/home/gibic/PruebaEnC/SmartBeddingRust/data_storage/ \
   /home/desarrollo-robbo/Documentos/PruebaEnC/DataStorage/
 
   rsync -avz \

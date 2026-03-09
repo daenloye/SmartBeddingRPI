@@ -1,3 +1,4 @@
+//cross build --target aarch64-unknown-linux-gnu --release
 mod pressure;
 mod config;
 mod storage;
