@@ -13,42 +13,34 @@ use utils::logger; // Importamos el logger para usarlo aquí también
 
 use std::thread;
 use std::time::Duration;
+use std::sync::Arc;
 
 fn main() {
     logger("SISTEMA", "INICIANDO SISTEMA");
 
-    // ----------------------------------------
-    // Definición de variables
-    // ----------------------------------------
-
-    let mut collecting: bool = false;
+    // 1. Creamos los controladores dentro de un Arc para compartirlos entre hilos
     let mut capture = CaptureController::new();
     let mut storage = StorageController::new();
     let mut bridge = BridgeController::new();
 
-    // ----------------------------------------
-    // Inicialización de módulos
-    // ----------------------------------------
-
     logger("SISTEMA", "INICIANDO MÓDULOS");
 
+    // Inicialización normal (antes de moverlos a los Arcs)
     storage.init();
-    bridge.init();
     capture.init();
+    bridge.init(); // Si necesitas algo previo
 
+    // 2. Envolvemos en Arc para el Bridge
+    let shared_capture = Arc::new(capture);
+    let shared_storage = Arc::new(storage);
 
-    // ----------------------------------------
-    // Definición de hilos
-    // ----------------------------------------
-    
-    collecting = true;
-    logger("SISTEMA", &format!("Estado de recolección: {}", collecting));
+    // 3. Arrancar motores
+    shared_capture.start(); // El Sampler (Muestreador) empieza en Capture
+    bridge.start(Arc::clone(&shared_capture), Arc::clone(&shared_storage));
 
-    capture.start();
+    logger("SISTEMA", "Estado de recolección: Activo");
 
-    // Mantenemos el main vivo (por ahora con un loop simple)
     loop {
         thread::sleep(Duration::from_secs(60));
     }
-
 }
