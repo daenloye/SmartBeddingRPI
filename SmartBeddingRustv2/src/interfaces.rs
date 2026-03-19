@@ -17,6 +17,6 @@ pub struct AccelReading {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PressureReading {
-    pub pressure: f32,
+    pub matrix: [[u16; 12]; 16],
     pub timestamp: String,
 }

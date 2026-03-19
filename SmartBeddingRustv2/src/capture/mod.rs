@@ -45,7 +45,7 @@ impl CaptureController {
         self.environment.init(Arc::clone(&shared_i2c));
 
         // Pressure sigue igual, sin el bus por ahora
-        self.pressure.init();
+        self.pressure.init(Arc::clone(&shared_i2c));
 
         logger("CAPTURE", "Todos los periféricos vinculados correctamente.");
     }
