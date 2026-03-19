@@ -3,10 +3,12 @@ mod storage;
 mod bridge;
 mod utils;
 mod interfaces;
+mod mqtt;
 
 use capture::CaptureController;
 use storage::StorageController;
 use bridge::BridgeController;
+use mqtt::MqttController;
 use utils::logger;
 
 use std::thread;
@@ -23,6 +25,7 @@ fn main() {
     let mut capture = CaptureController::new();
     let mut storage = StorageController::new();
     let mut bridge = BridgeController::new();
+    let mqtt = mqtt::MqttController::new();
 
     logger("SISTEMA", "Configurando hardware y carpetas...");
 
@@ -30,6 +33,8 @@ fn main() {
     storage.init();
     capture.init(); // Aquí se abren los buses I2C y GPIO
     bridge.init();
+    mqtt.init();
+    
 
     // 4. Movemos a Arc para compartir entre hilos
     let shared_capture = Arc::new(capture);
@@ -38,6 +43,7 @@ fn main() {
     // 5. Arrancar motores de sensores
     // Esto lanza el hilo de la matriz de presión (que tarda ~1.5s en su primer scan)
     shared_capture.start(); 
+    mqtt.start();
     
     // --- ESTABILIZACIÓN ---
     logger("SISTEMA", "Esperando a que los sensores se estabilicen...");
