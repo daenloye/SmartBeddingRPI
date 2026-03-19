@@ -24,18 +24,37 @@ impl BridgeController {
 
         thread::spawn(move || {
             let mut last_tick = Instant::now();
-            let tick_rate = Duration::from_millis(10000); // El "Getter" pide cada 1s
+            let mut tick_counter = 0;
+            let tick_rate = Duration::from_millis(10); // Reloj maestro cada 10s
 
             loop {
-                logger("BRIDGE", "Obtengo datos...");
-                // 1. GETTER: Obtenemos la copia del último dato de ambiente
-                let (temp, hum) = capture.environment.get_latest();
+                //Muestreo de giroscopio a 50ms
+                if(tick_counter%50==0){
 
-                // 2. LÓGICA DE BUFFER (Opcional por ahora):
-                // Podrías acumular aquí 10 lecturas antes de llamar al storage
+                }
+
+                //Muestreo de environment a 10.000 ms
+                if(tick_counter%10000==0){
+                    logger("BRIDGE", "Muestreo de ambiente");
+                    let (temp, hum) = capture.environment.get_latest();
+                }
+
+                //Muestreo de presion a 1000ms
+                if(tick_counter%1000==0){
+
+                }
+
+                //Si ya llegó a 1 minuto cierro el archivo
+                if(tick_counter%60000==0){
+                    //Lo reinicio
+                    tick_counter=0;
+                }else{
+                    //Lo aumento 10ms
+                    tick_counter+=10;
+                }
                 
-                // 3. STORAGE: Enviamos al controlador de almacenamiento
-                // storage.save_env_data(temp, hum); 
+
+
 
                 // Control del metrónomo del puente
                 let elapsed = last_tick.elapsed();
