@@ -17,19 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 fn main() {
     logger("SISTEMA", "=== INICIANDO SMART BEDDING SYSTEM ===");
 
-    // 1. Variable de control compartida
     let running = Arc::new(AtomicBool::new(true));
-    let r = Arc::clone(&running);
-
-    // Opcional: Manejador de Ctrl+C para cerrar limpiamente
-    // Si tienes la crate 'ctrlc' en Cargo.toml, descomenta esto:
-    /*
-    ctrlc::set_handler(move || {
-        logger("SISTEMA", "Señal de parada recibida (Ctrl+C)...");
-        r.store(false, Ordering::SeqCst);
-    }).expect("Error configurando manejador de señales");
-    */
-
+    
     // 2. Instanciamos los controladores
     let mut capture = CaptureController::new();
     let mut storage = StorageController::new();
@@ -37,30 +26,33 @@ fn main() {
 
     logger("SISTEMA", "Configurando hardware y carpetas...");
 
-    // 3. Inicialización
+    // 3. Inicialización de Hardware y Archivos
     storage.init();
-    capture.init();
+    capture.init(); // Aquí se abren los buses I2C y GPIO
     bridge.init();
 
-    // 4. Movemos a Arc
+    // 4. Movemos a Arc para compartir entre hilos
     let shared_capture = Arc::new(capture);
     let shared_storage = Arc::new(storage);
 
-    // 5. Arrancar motores
-    // El Sampler interno de Capture empieza a llenar los Mutex
+    // 5. Arrancar motores de sensores
+    // Esto lanza el hilo de la matriz de presión (que tarda ~1.5s en su primer scan)
     shared_capture.start(); 
     
-    // El Bridge empieza a "cosechar" los datos y mandarlos al Storage
+    // --- ESTABILIZACIÓN ---
+    logger("SISTEMA", "Esperando a que los sensores se estabilicen...");
+    thread::sleep(Duration::from_millis(2000)); // 2 segundos de cortesía
+    // ----------------------
+
+    // 6. Arrancar el puente (Bridge)
+    // Ahora, cuando el Bridge pida la primera muestra, el buffer ya tendrá datos reales
     bridge.start(Arc::clone(&shared_capture), Arc::clone(&shared_storage));
 
-    logger("SISTEMA", "Sistema en ejecución. Presione Ctrl+C para salir.");
+    logger("SISTEMA", "Sistema en ejecución y estable. Presione Ctrl+C para salir.");
 
-    // 6. Loop principal controlado
     while running.load(Ordering::SeqCst) {
-        // Aquí podrías añadir lógica de chequeo de salud del sistema
         thread::sleep(Duration::from_secs(1));
     }
 
     logger("SISTEMA", "Cerrando sistema de forma segura...");
-    // Aquí podrías llamar a funciones de limpieza si fuera necesario
 }
