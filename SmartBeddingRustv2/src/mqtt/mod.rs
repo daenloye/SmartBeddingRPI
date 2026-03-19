@@ -1,83 +1,92 @@
 use paho_mqtt as mqtt;
 use std::time::Duration;
 use crate::utils::logger;
+use tokio::time::sleep;
 
-const D_BROKER: &str = "tcp://192.168.1.100:1883";
-const D_CLIENT_ID: &str = "SmartBedding_01";
-const D_USER: &str = "admin";
-const D_PASS: &str = "password123";
+// En lugar de buscar en mqtt::futures, usamos el re-export directo de paho_mqtt
+// que está disponible incluso con features mínimas para habilitar Streams
+use mqtt::Receiver; 
 
-const TOPICS: &[&str] = &["smartbed/cmd", "smartbed/config"];
-const QOS: &[i32] = &[1, 1];
+const D_BROKER: &str = "tcp://3.90.24.183:8807";
+const D_USER: &str = "smartbedding_publisher";
+const D_PASS: &str = "Sb998?-Tx";
+const D_CLIENT_ID: &str = "000001";
 
-pub struct MqttController{
-    pub client: mqtt::Client,
+pub struct MqttController {
+    pub client: mqtt::AsyncClient,
+    pub bedding_id: String,
 }
 
-impl MqttController{
-    /// FASE 1: Constructor (Configuración estática)
+impl MqttController {
     pub fn new() -> Self {
+        let bedding_id = D_CLIENT_ID.to_string();
         let create_opts = mqtt::CreateOptionsBuilder::new()
             .server_uri(D_BROKER)
-            .client_id(D_CLIENT_ID)
-            .persistence(mqtt::PersistenceType::None) // Evita archivos temporales de persistencia
+            .client_id(&bedding_id)
+            .persistence(mqtt::PersistenceType::None)
             .finalize();
 
-        let client = mqtt::Client::new(create_opts).unwrap_or_else(|err| {
-            logger("ERROR", &format!("MQTT Create Error: {:?}", err));
+        let client = mqtt::AsyncClient::new(create_opts).unwrap_or_else(|err| {
+            logger("ERROR", &format!("MQTT Async Create Error: {:?}", err));
             panic!("Falló la creación del cliente MQTT");
         });
 
-        Self { client }
+        Self { client, bedding_id }
     }
 
-    /// FASE 2: Init (Preparación de parámetros de conexión)
     pub fn init(&self) {
-        logger("MQTT", "Módulo inicializado y listo para conectar.");
+        logger("MQTT", &format!("Módulo Async listo para Bedding ID: {}", self.bedding_id));
     }
 
-    /// FASE 3: Start (Conexión activa y escucha de hilos)
     pub fn start(&self) {
-        // Clonamos el cliente para moverlo al hilo (paho-mqtt maneja Arcs internamente)
-        let client = self.client.clone();
+        let mut client = self.client.clone();
+        let bedding_id = self.bedding_id.clone();
+        
+        // El stream de mensajes entrantes
+        let mut strm = client.get_stream(25);
 
-        logger("MQTT", "Lanzando hilo de conexión en segundo plano...");
+        logger("MQTT", "Iniciando loop de eventos asíncrono...");
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let conn_opts = mqtt::ConnectOptionsBuilder::new()
-                .keep_alive_interval(Duration::from_secs(20))
+                .keep_alive_interval(Duration::from_secs(60))
                 .user_name(D_USER)
                 .password(D_PASS)
                 .clean_session(true)
                 .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(30))
                 .finalize();
 
-            // Este es el punto que bloqueaba 30 segundos:
-            match client.connect(conn_opts) {
-                Ok(_) => {
-                    logger("MQTT", "Conexión exitosa (Background)");
-                    let _ = client.subscribe_many(TOPICS, QOS);
-                }
-                Err(e) => {
-                    // Ahora el error saldrá en consola pero el hardware ya estará capturando
-                    logger("ERROR", &format!("MQTT Falló (pero el sistema sigue): {:?}", e));
+            if let Err(e) = client.connect(conn_opts).await {
+                logger("ERROR", &format!("Error conexión MQTT: {:?}", e));
+            } else {
+                logger("MQTT", "Conectado al broker de producción (Async)");
+                let topic = format!("sb/response/{}", bedding_id);
+                let _ = client.subscribe(&topic, 1).await;
+                
+                sleep(Duration::from_secs(1)).await;
+                let init_topic = format!("sb/init/{}", bedding_id);
+                let payload = format!(r#"{{"s": "{}"}}"#, bedding_id);
+                let msg = mqtt::Message::new(init_topic, payload, 1);
+                let _ = client.publish(msg).await;
+            }
+
+            // Cambiamos el .next().await por un bucle recv() que es compatible
+            // con AsyncReceiver sin necesidad de traits externos como StreamExt
+            while let Ok(msg_opt) = strm.recv().await {
+                if let Some(msg) = msg_opt {
+                    let topic = msg.topic();
+                    let payload = msg.payload_str();
+                    logger("MQTT_IN", &format!("[{}] -> {}", topic, payload));
                 }
             }
         });
     }
-    
-    /// Manejador interno de mensajes (Privado)
-    fn spawn_message_handler(&self, rx: mqtt::Receiver<Option<mqtt::Message>>) {
-        std::thread::spawn(move || {
-            logger("MQTT", "Hilo de escucha de comandos activo.");
-            for msg in rx {
-                if let Some(msg) = msg {
-                    // Aquí es donde procesarás los silvidos remotos o configuraciones
-                    let payload = msg.payload_str(); 
-                    logger("MQTT_IN", &format!("[{}] -> {}", msg.topic(), payload));
-                }
-            }
-            logger("MQTT", "Hilo de escucha finalizado.");
-        });
+
+    pub async fn publish_record(&self, payload: String) {
+        if self.client.is_connected() {
+            let topic = format!("sb/record/{}", self.bedding_id);
+            let msg = mqtt::Message::new(topic, payload, 1);
+            let _ = self.client.publish(msg).await;
+        }
     }
 }

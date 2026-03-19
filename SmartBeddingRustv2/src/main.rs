@@ -11,54 +11,57 @@ use bridge::BridgeController;
 use mqtt::MqttController;
 use utils::logger;
 
-use std::thread;
-use std::time::Duration;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use tokio::time::sleep;
 
-fn main() {
-    logger("SISTEMA", "=== INICIANDO SMART BEDDING SYSTEM ===");
+#[tokio::main]
+async fn main() {
+    logger("SISTEMA", "=== INICIANDO SMART BEDDING SYSTEM (TOKIO) ===");
 
-    let running = Arc::new(AtomicBool::new(true));
-    
-    // 2. Instanciamos los controladores
+    // 1. Instanciamos los controladores (en el stack del main)
     let mut capture = CaptureController::new();
     let mut storage = StorageController::new();
     let mut bridge = BridgeController::new();
-    let mqtt = mqtt::MqttController::new();
+    let mqtt = MqttController::new();
 
     logger("SISTEMA", "Configurando hardware y carpetas...");
 
-    // 3. Inicialización de Hardware y Archivos
+    // 2. Inicialización (Síncrona, prepara descriptores y buses)
     storage.init();
-    capture.init(); // Aquí se abren los buses I2C y GPIO
+    capture.init(); 
     bridge.init();
     mqtt.init();
-    
 
-    // 4. Movemos a Arc para compartir entre hilos
+    // 3. Movemos a Arc para compartir entre hilos y tareas
     let shared_capture = Arc::new(capture);
     let shared_storage = Arc::new(storage);
+    let shared_mqtt = Arc::new(mqtt);
 
-    // 5. Arrancar motores de sensores
-    // Esto lanza el hilo de la matriz de presión (que tarda ~1.5s en su primer scan)
+    // 4. Arrancar motores
+    // Esto lanza los hilos de std::thread (Hardware)
     shared_capture.start(); 
-    mqtt.start();
+    
+    // Esto lanza la tarea de tokio (Red)
+    shared_mqtt.start();
     
     // --- ESTABILIZACIÓN ---
     logger("SISTEMA", "Esperando a que los sensores se estabilicen...");
-    thread::sleep(Duration::from_millis(2000)); // 2 segundos de cortesía
+    sleep(Duration::from_millis(2000)).await; 
     // ----------------------
 
-    // 6. Arrancar el puente (Bridge)
-    // Ahora, cuando el Bridge pida la primera muestra, el buffer ya tendrá datos reales
-    bridge.start(Arc::clone(&shared_capture), Arc::clone(&shared_storage));
+    // 5. Arrancar el puente (Bridge)
+    // Pasamos los Arcs. El bridge ahora tiene acceso a todo pero tú decides cuándo usarlo.
+    bridge.start(
+        Arc::clone(&shared_capture), 
+        Arc::clone(&shared_storage),
+    );
 
     logger("SISTEMA", "Sistema en ejecución y estable. Presione Ctrl+C para salir.");
 
-    while running.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_secs(1));
-    }
+    // 6. El "Ancla": Mantiene el proceso vivo eficientemente
+    // Se queda aquí colgado hasta que detecta el Ctrl+C del sistema.
+    tokio::signal::ctrl_c().await.expect("Fallo al escuchar señal CTRL+C");
 
-    logger("SISTEMA", "Cerrando sistema de forma segura...");
+    logger("SISTEMA", "Cerrando sistema (Salida abrupta detectada)...");
 }
