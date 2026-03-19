@@ -41,6 +41,10 @@ impl FileHandler {
             mem_percent: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
         };
 
+        // FLAGS DE CONFIGURACIÓN (Cámbialas según necesites)
+        let save_wav = true;
+        let save_opus = true;
+
         // 4. Construcción del Schema Final (Jerarquía nivel Measures)
         let schema = SessionSchema {
             initTimestamp: start,
@@ -63,9 +67,14 @@ impl FileHandler {
             logger("FILES", &format!("✓ JSON persistido: {:?}", file_path));
         }
 
-        // 6. Guardar el WAV (Opcional, pero recomendado para auditoría)
-        let wav_path = self.session_path.join(format!("audio_{}.wav", Local::now().format("%H%M%S")));
-        AudioHandler::save_wav(wav_path, audio_samples);
+        // 6. NUEVO MOTOR DE AUDIO DUAL
+        let timestamp = Local::now().format("%H%M%S").to_string();
+        let base_audio_path = self.session_path.join(format!("audio_{}", timestamp));
+
+        // Llamamos al nuevo método con las flags
+        AudioHandler::save_audio(base_audio_path, &audio_samples, save_wav, save_opus);
+        
+        logger("STORAGE", &format!("Audio procesado (WAV: {}, OPUS: {})", save_wav, save_opus));
     }
 
     fn run_dsp(&self, raw: &DataRaw) -> (Vec<f32>, Vec<f32>, f32) {
