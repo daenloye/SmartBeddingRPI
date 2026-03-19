@@ -8,6 +8,13 @@ rsync -avz \
   /home/desarrollo-robbo/Documentos/PruebaEnC/SmartBeddingRustv2/target/aarch64-unknown-linux-gnu/release/SmartBeddingSystem \
   gibic@192.168.0.113:/home/gibic/SmartBeddingRust/
 
+rsync -avz \
+  --include='*/' \
+  --include='*.json' \
+  --exclude='*' \
+  gibic@192.168.0.113:/home/gibic/SmartBeddingData/ \
+  /home/desarrollo-robbo/Documentos/SmartBeddingData/
+
 
 
 

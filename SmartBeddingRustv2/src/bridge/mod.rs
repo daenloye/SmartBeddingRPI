@@ -16,21 +16,20 @@ impl BridgeController {
     pub fn init(&mut self) { logger("BRIDGE", "Controlador listo."); }
 
     pub fn start(&self, capture: Arc<CaptureController>, storage: Arc<StorageController>) {
-        logger("BRIDGE", "Iniciando orquestación...");
-
         thread::spawn(move || {
-            let mut last_tick = Instant::now();
-            let mut tick_counter: u32 = 0; 
-            let tick_rate = Duration::from_millis(10); 
+            let tick_rate = Duration::from_millis(10); // Resolución base de 10ms
+            let mut next_tick = Instant::now();
 
-            // Buffers locales al hilo del Bridge
+            let mut tick_counter: u32 = 0;
             let mut current_data = DataRaw::default();
             let mut minute_start_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
             loop {
                 let timestamp_now = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
 
-                // 1. ACELERACIÓN (50ms)
+                // --- LÓGICA DE MUESTREO EXACTO ---
+
+                // 1. ACELERACIÓN: 50ms (Exactos)
                 if tick_counter % 50 == 0 {
                     let raw = capture.acceleration.get_latest();
                     current_data.acceleration.push(AccelReading {
@@ -40,7 +39,7 @@ impl BridgeController {
                     });
                 }
 
-                // 2. PRESIÓN (1000ms)
+                // 2. PRESIÓN: 1000ms (1s Exacto)
                 if tick_counter % 1000 == 0 {
                     let matrix = capture.pressure.get_latest();
                     current_data.pressure.push(PressureReading {
@@ -49,8 +48,8 @@ impl BridgeController {
                     });
                 }
 
-                // 3. AMBIENTE (10s)
-                if tick_counter % 10000 == 0 {
+                // 3. AMBIENTE: 20.000ms (20s Exactos)
+                if tick_counter % 20000 == 0 {
                     let env = capture.environment.get_latest();
                     current_data.environment.push(EnvReading {
                         temperature: env.0,
@@ -59,16 +58,12 @@ impl BridgeController {
                     });
                 }
 
-                // 4. ROTACIÓN DE MINUTO
+                // 4. ROTACIÓN DE MINUTO: 60.000ms
                 if tick_counter >= 60000 {
-                    logger("BRIDGE", "--- Rotando minuto ---");
-                    
-                    // Extraer datos y resetear buffer instantáneamente
                     let data_to_save = std::mem::take(&mut current_data);
                     let start_to_save = minute_start_time.clone();
                     let storage_ptr = storage.clone();
 
-                    // Guardado asíncrono para no bloquear el siguiente tick
                     thread::spawn(move || {
                         storage_ptr.process_and_save(data_to_save, start_to_save);
                     });
@@ -79,10 +74,17 @@ impl BridgeController {
                     tick_counter += 10;
                 }
 
-                // Metrónomo
-                let elapsed = last_tick.elapsed();
-                if elapsed < tick_rate { thread::sleep(tick_rate - elapsed); }
-                last_tick = Instant::now();
+                // --- EL METRÓNOMO ABSOLUTO ---
+                next_tick += tick_rate; // Calculamos cuándo DEBERÍA ser el siguiente tick
+                let now = Instant::now();
+                
+                if next_tick > now {
+                    thread::sleep(next_tick - now); // Dormimos solo el tiempo restante
+                } else {
+                    // Si llegamos tarde (la CPU se saturó), no dormimos 
+                    // y recalculamos next_tick para no acumular error
+                    next_tick = now;
+                }
             }
         });
     }
