@@ -1,6 +1,6 @@
 use crate::capture::CaptureController;
-use crate::storage::{StorageController, DataRaw};
-use crate::interfaces::{EnvReading, AccelReading, PressureReading}; 
+use crate::storage::{StorageController};
+use crate::interfaces::{EnvReading, AccelReading, PressureReading, DataRaw}; 
 use crate::utils::logger;
 
 use std::sync::Arc;

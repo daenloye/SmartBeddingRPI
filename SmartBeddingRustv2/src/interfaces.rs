@@ -1,5 +1,12 @@
 use serde::{Serialize, Deserialize};
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct DataRaw {
+    pub pressure: Vec<PressureReading>,
+    pub acceleration: Vec<AccelReading>,
+    pub environment: Vec<EnvReading>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvReading {
     pub temperature: f32,
@@ -43,7 +50,7 @@ pub struct Measures {
 pub struct SessionSchema {
     pub initTimestamp: String,
     pub finishTimestamp: String,
-    pub dataRaw: crate::storage::DataRaw,
+    pub dataRaw: DataRaw,
     pub dataProcessed: DataProcessed,
     pub measures: Measures,
     pub performance: Option<Performance>,
