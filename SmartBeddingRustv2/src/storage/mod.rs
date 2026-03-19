@@ -1,7 +1,10 @@
+// src/storage/mod.rs
+
 pub mod files;
 pub mod audio;
 
 use files::FileHandler;
+use audio::AudioHandler;
 use crate::interfaces::DataRaw;
 use crate::utils::logger;
 
@@ -16,13 +19,16 @@ impl StorageController {
 
     pub fn init(&mut self) {
         self.file_handler = Some(FileHandler::new());
-        logger("STORAGE", "Orquestador iniciado.");
+        logger("STORAGE", "Orquestador listo.");
     }
 
-    /// Pasamanos puro
-    pub fn process_and_save(&self, raw_data: DataRaw, start_time: String) {
+    pub fn process_and_save(&self, raw_data: DataRaw, audio_data: Vec<i16>, start_time: String) {
         if let Some(handler) = &self.file_handler {
+            // Guardamos el JSON y procesamos señales (files.rs)
             handler.process_and_persist(raw_data, start_time);
+            
+            // Guardamos el audio (audio.rs)
+            AudioHandler::save_wav(handler.session_path.clone(), audio_data);
         }
     }
 }
