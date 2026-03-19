@@ -3,6 +3,7 @@ mod capture;
 mod storage;
 mod bridge;
 mod utils;
+mod interfaces;
 
 use capture::CaptureController;
 use storage::StorageController;

@@ -1,6 +1,6 @@
 use crate::capture::CaptureController;
 use crate::storage::StorageController;
-use crate::models::{EnvReading, AccelReading}; // Importamos tus nuevas estructuras
+use crate::interfaces::{EnvReading, AccelReading}; // Importamos tus nuevas estructuras
 use crate::utils::logger;
 
 use std::sync::Arc;
@@ -33,7 +33,6 @@ impl BridgeController {
                 // 1. Muestreo de GIROSCOPIO/ACELERACIÓN a 50ms
                 if tick_counter % 50 == 0 {
                     let raw = capture.acceleration.get_latest();
-                    let time=
                     
                     let reading = AccelReading {
                         gx: raw[0], gy: raw[1], gz: raw[2],
@@ -57,8 +56,8 @@ impl BridgeController {
                     let env_raw = capture.environment.get_latest();
 
                     let reading = EnvReading {
-                        temperature: env_raw.temperature,
-                        humidity: env_raw.humidity,
+                        temperature: env_raw.0,
+                        humidity: env_raw.1,
                         timestamp: timestamp_now.clone(),
                     };
 
