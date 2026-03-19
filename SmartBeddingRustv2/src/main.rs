@@ -3,10 +3,12 @@ use chrono::Local;
 
 mod capture; 
 mod storage;
+mod bridge;
 mod utils;
 
 use capture::CaptureController;
 use storage::StorageController;
+use bridge::BridgeController;
 use utils::logger; // Importamos el logger para usarlo aquí también
 
 use std::thread;
@@ -20,8 +22,9 @@ fn main() {
     // ----------------------------------------
 
     let mut collecting: bool = false;
-    let mut controller = CaptureController::new();
+    let mut capture = CaptureController::new();
     let mut storage = StorageController::new();
+    let mut bridge = BridgeController::new();
 
     // ----------------------------------------
     // Inicialización de módulos
@@ -30,7 +33,8 @@ fn main() {
     logger("SISTEMA", "INICIANDO MÓDULOS");
 
     storage.init();
-    controller.init();
+    bridge.init();
+    capture.init();
 
 
     // ----------------------------------------
@@ -40,7 +44,7 @@ fn main() {
     collecting = true;
     logger("SISTEMA", &format!("Estado de recolección: {}", collecting));
 
-    controller.start();
+    capture.start();
 
     // Mantenemos el main vivo (por ahora con un loop simple)
     loop {
