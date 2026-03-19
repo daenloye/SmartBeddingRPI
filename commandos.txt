@@ -1,3 +1,40 @@
+rsync -avz \
+  --exclude='.git/' \
+  --exclude='__pycache__/' \
+  --exclude='*.vscode' \
+  --exclude='DataStorage/' \
+  --exclude='SmartBeddingRust/' \
+  --exclude='Logs/' \
+  /home/desarrollo-robbo/Documentos/PruebaEnC/SmartBeddingRustv2/target/aarch64-unknown-linux-gnu/release/SmartBeddingSystem \
+  gibic@192.168.0.113:/home/gibic/SmartBeddingRust/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 rsync -avz /home/desarrollo-robbo/Documentos/PruebaEnC/ gibic@192.168.0.100:/home/gibic/PruebaEnC/
 
 rsync -avz \
