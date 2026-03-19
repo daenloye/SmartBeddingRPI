@@ -4,6 +4,7 @@ use chrono::Local;
 use sysinfo::{System, SystemExt, CpuExt}; // Movido aquí
 use crate::interfaces::*;
 use crate::utils::logger;
+use crate::storage::audio::AudioHandler;
 
 const B_RRS: [f64; 7] = [4.975743576868226e-05, 0.0, -0.00014927230730604678, 0.0, 0.00014927230730604678, 0.0, -4.975743576868226e-05];
 const A_RRS: [f64; 7] = [1.0, -5.830766569820652, 14.185404142052889, -18.43141872929975, 13.489689338789688, -5.2728999261646115, 0.8599919781204693];
@@ -20,16 +21,19 @@ impl FileHandler {
         let now = Local::now().format("%Y%m%d_%H%M%S").to_string();
         path = path.join(format!("session_{}", now));
         let _ = fs::create_dir_all(&path);
-        logger("STORAGE", &format!("Carpeta de sesión: {:?}", path));
+        logger("STORAGE", &format!("Carpeta de sesión creada: {:?}", path));
         Self { session_path: path }
     }
 
-    /// TODO EL MÉTODO ESTÁ AQUÍ AHORA
-    pub fn process_and_persist(&self, raw: DataRaw, start: String) {
-        // 1. DSP
+    /// AHORA RECIBE EL AUDIO TAMBIÉN
+    pub fn process_and_persist(&self, raw: DataRaw, audio_samples: Vec<i16>, start: String) {
+        // 1. DSP de Aceleración (Tu lógica actual)
         let (rrs, crs, resp_rate) = self.run_dsp(&raw);
         
-        // 2. Performance (Medido justo antes de cerrar el paquete)
+        // 2. DSP de Audio (Extraemos las medidas que pediste)
+        let audio_measures = AudioHandler::analyze_buffer(&audio_samples);
+
+        // 3. Performance (Cálculo de recursos)
         let mut sys = System::new_all();
         sys.refresh_all();
         let performance = Performance {
@@ -37,22 +41,31 @@ impl FileHandler {
             mem_percent: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
         };
 
-        // 3. Construcción del Schema
+        // 4. Construcción del Schema Final (Jerarquía nivel Measures)
         let schema = SessionSchema {
             initTimestamp: start,
             finishTimestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             dataRaw: raw, 
             dataProcessed: DataProcessed { rrs, crs },
-            measures: Measures { respiratory_rate: resp_rate, ..Default::default() },
+            measures: Measures { 
+                audio: audio_measures, // <--- Aquí inyectamos el análisis de audio
+                respiratory_rate: resp_rate as i32, 
+                heart_rate: 0,
+                heart_rate_variability: 0,
+            },
             performance: Some(performance),
         };
 
-        // 4. Escritura física
+        // 5. Escritura del JSON
         let file_path = self.session_path.join(format!("data_{}.json", Local::now().format("%H%M%S")));
         if let Ok(file) = fs::File::create(&file_path) {
-            let _ = serde_json::to_writer(file, &schema);
-            logger("FILES", &format!("Minuto guardado: {:?}", file_path));
+            let _ = serde_json::to_writer_pretty(file, &schema); // _pretty para que sea legible como la imagen
+            logger("FILES", &format!("✓ JSON persistido: {:?}", file_path));
         }
+
+        // 6. Guardar el WAV (Opcional, pero recomendado para auditoría)
+        let wav_path = self.session_path.join(format!("audio_{}.wav", Local::now().format("%H%M%S")));
+        AudioHandler::save_wav(wav_path, audio_samples);
     }
 
     fn run_dsp(&self, raw: &DataRaw) -> (Vec<f32>, Vec<f32>, f32) {

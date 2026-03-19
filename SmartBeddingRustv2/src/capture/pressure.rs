@@ -63,7 +63,7 @@ impl PressureModule {
 
         // 3. Extraemos los pines para moverlos al hilo. 
         // Si GPIO falló en init(), detenemos el escaneo sin causar un panic global.
-        let mut pins_opt = self.pins.lock().unwrap().take();
+        let pins_opt = self.pins.lock().unwrap().take();
         if pins_opt.is_none() {
             logger("PRESSURE", "Abortando inicio del hilo: pines GPIO no disponibles.");
             return;

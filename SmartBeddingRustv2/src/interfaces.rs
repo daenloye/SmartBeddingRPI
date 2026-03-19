@@ -1,10 +1,13 @@
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Clone, Default)]
-pub struct AudioMetrics {
+pub struct AudioMeasures {
     pub db_avg: f32,
     pub db_max: f32,
     pub db_min: f32,
+    pub zcr: f32,
+    pub crest_factor: f32,
+    pub silence_percent: f32,
 }
 
 #[derive(Serialize, Default)]
@@ -12,7 +15,6 @@ pub struct DataRaw {
     pub acceleration: Vec<AccelReading>,
     pub pressure: Vec<PressureReading>,
     pub environment: Vec<EnvReading>,
-    pub audio_summary: Option<AudioMetrics>, // <-- El resumen del minuto
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,9 +51,10 @@ pub struct Performance {
 
 #[derive(Serialize, Clone, Default)]
 pub struct Measures {
-    pub respiratory_rate: f32,
-    pub heart_rate: f32,
-    pub heart_rate_variability: f32,
+    pub audio: AudioMeasures,
+    pub respiratory_rate: i32,
+    pub heart_rate: i32,
+    pub heart_rate_variability: i32,
 }
 
 #[derive(Serialize)]
