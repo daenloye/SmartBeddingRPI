@@ -32,30 +32,25 @@ impl CaptureController {
     pub fn init(&mut self) {
         logger("CAPTURE", "Iniciando hardware compartido...");
 
-        // CAMBIO AQUÍ: No uses I2c::new(). Usa I2c::with_bus(1)
-        // Esto ignora la detección del modelo y abre el dispositivo /dev/i2c-1 directamente.
+        // Bus I2C directo para evitar fallos de detección de modelo en la Pi
         let i2c = I2c::with_bus(1).expect("Error crítico: No se pudo abrir el bus I2C 1");
         let shared_i2c = Arc::new(Mutex::new(i2c));
 
-        // Inicializamos módulos
+        // Inicialización de módulos
         self.audio.init(); 
         self.acceleration.init();
-        
-        // Pasamos el bus solo a quien lo necesita actualmente
         self.environment.init(Arc::clone(&shared_i2c));
-
-        // Pressure sigue igual, sin el bus por ahora
         self.pressure.init(Arc::clone(&shared_i2c));
 
         logger("CAPTURE", "Todos los periféricos vinculados correctamente.");
     }
 
     pub fn start(&self) {
-        logger("CAPTURE", "Lanzando hilos de sensores...");
+        logger("CAPTURE", "Lanzando hilos de captura...");
+        
+        self.audio.start();
         self.environment.run();
         self.acceleration.run();
         self.pressure.run();
     }
-
-
 }
