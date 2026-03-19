@@ -1,7 +1,7 @@
 use rppal::gpio::{Gpio, OutputPin};
 use rppal::i2c::I2c;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use crate::utils::logger;
 
