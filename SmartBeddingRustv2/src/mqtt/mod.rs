@@ -38,35 +38,34 @@ impl MqttController{
 
     /// FASE 3: Start (Conexión activa y escucha de hilos)
     pub fn start(&self) {
-        let conn_opts = mqtt::ConnectOptionsBuilder::new()
-            .keep_alive_interval(Duration::from_secs(20))
-            .user_name(D_USER)
-            .password(D_PASS)
-            .clean_session(true)
-            .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(30))
-            .finalize();
+        // Clonamos el cliente para moverlo al hilo (paho-mqtt maneja Arcs internamente)
+        let client = self.client.clone();
 
-        // Iniciamos el receptor antes de conectar para no perder mensajes
-        let rx = self.client.start_consuming();
+        logger("MQTT", "Lanzando hilo de conexión en segundo plano...");
 
-        match self.client.connect(conn_opts) {
-            Ok(_) => {
-                logger("MQTT", &format!("Conexión establecida con {}", D_BROKER));
-                
-                // Suscripción a canales "quemados"
-                if let Err(e) = self.client.subscribe_many(TOPICS, QOS) {
-                    logger("ERROR", &format!("Error en suscripción inicial: {:?}", e));
+        std::thread::spawn(move || {
+            let conn_opts = mqtt::ConnectOptionsBuilder::new()
+                .keep_alive_interval(Duration::from_secs(20))
+                .user_name(D_USER)
+                .password(D_PASS)
+                .clean_session(true)
+                .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(30))
+                .finalize();
+
+            // Este es el punto que bloqueaba 30 segundos:
+            match client.connect(conn_opts) {
+                Ok(_) => {
+                    logger("MQTT", "Conexión exitosa (Background)");
+                    let _ = client.subscribe_many(TOPICS, QOS);
                 }
-                
-                // Disparamos el hilo de escucha (Background worker)
-                self.spawn_message_handler(rx);
+                Err(e) => {
+                    // Ahora el error saldrá en consola pero el hardware ya estará capturando
+                    logger("ERROR", &format!("MQTT Falló (pero el sistema sigue): {:?}", e));
+                }
             }
-            Err(e) => {
-                logger("ERROR", &format!("Error al arrancar MQTT: {:?}", e));
-            }
-        }
+        });
     }
-
+    
     /// Manejador interno de mensajes (Privado)
     fn spawn_message_handler(&self, rx: mqtt::Receiver<Option<mqtt::Message>>) {
         std::thread::spawn(move || {
