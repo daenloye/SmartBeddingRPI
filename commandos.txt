@@ -15,6 +15,16 @@ rsync -avz \
   gibic@192.168.0.113:/home/gibic/SmartBeddingData/ \
   /home/desarrollo-robbo/Documentos/SmartBeddingData/
 
+rsync -avz \
+  --include='*/' \
+  --include='*.json' \
+  --include='*.wav' \
+  --exclude='*' \
+  gibic@192.168.0.113:/home/gibic/SmartBeddingData/ \
+  /home/desarrollo-robbo/Documentos/SmartBeddingData/
+
+
+
 
 
 

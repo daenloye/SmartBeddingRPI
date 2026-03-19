@@ -1,10 +1,18 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Clone, Default)]
+pub struct AudioMetrics {
+    pub db_avg: f32,
+    pub db_max: f32,
+    pub db_min: f32,
+}
+
+#[derive(Serialize, Default)]
 pub struct DataRaw {
-    pub pressure: Vec<PressureReading>,
     pub acceleration: Vec<AccelReading>,
+    pub pressure: Vec<PressureReading>,
     pub environment: Vec<EnvReading>,
+    pub audio_summary: Option<AudioMetrics>, // <-- El resumen del minuto
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
