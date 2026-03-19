@@ -1,10 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 use chrono::Local;
+use sysinfo::{System, SystemExt, CpuExt}; // Movido aquí
 use crate::interfaces::*;
 use crate::utils::logger;
 
-// Constantes de Filtros
 const B_RRS: [f64; 7] = [4.975743576868226e-05, 0.0, -0.00014927230730604678, 0.0, 0.00014927230730604678, 0.0, -4.975743576868226e-05];
 const A_RRS: [f64; 7] = [1.0, -5.830766569820652, 14.185404142052889, -18.43141872929975, 13.489689338789688, -5.2728999261646115, 0.8599919781204693];
 const B_CRS: [f64; 9] = [0.0010739281487746567, 0.0, -0.004295712595098627, 0.0, 0.006443568892647941, 0.0, -0.004295712595098627, 0.0, 0.0010739281487746567];
@@ -20,20 +20,42 @@ impl FileHandler {
         let now = Local::now().format("%Y%m%d_%H%M%S").to_string();
         path = path.join(format!("session_{}", now));
         let _ = fs::create_dir_all(&path);
-        logger("STORAGE", &format!("Sesión física iniciada en: {:?}", path));
+        logger("STORAGE", &format!("Carpeta de sesión: {:?}", path));
         Self { session_path: path }
     }
 
-    pub fn save_session_json(&self, schema: &SessionSchema) {
+    /// TODO EL MÉTODO ESTÁ AQUÍ AHORA
+    pub fn process_and_persist(&self, raw: DataRaw, start: String) {
+        // 1. DSP
+        let (rrs, crs, resp_rate) = self.run_dsp(&raw);
+        
+        // 2. Performance (Medido justo antes de cerrar el paquete)
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let performance = Performance {
+            cpu_percent: sys.global_cpu_info().cpu_usage(),
+            mem_percent: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
+        };
+
+        // 3. Construcción del Schema
+        let schema = SessionSchema {
+            initTimestamp: start,
+            finishTimestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            dataRaw: raw, 
+            dataProcessed: DataProcessed { rrs, crs },
+            measures: Measures { respiratory_rate: resp_rate, ..Default::default() },
+            performance: Some(performance),
+        };
+
+        // 4. Escritura física
         let file_path = self.session_path.join(format!("data_{}.json", Local::now().format("%H%M%S")));
         if let Ok(file) = fs::File::create(&file_path) {
-            let _ = serde_json::to_writer(file, schema);
-            logger("FILES", &format!("JSON guardado: {:?}", file_path));
+            let _ = serde_json::to_writer(file, &schema);
+            logger("FILES", &format!("Minuto guardado: {:?}", file_path));
         }
     }
 
-    // --- LÓGICA DSP TRASLADADA ---
-    pub fn run_dsp(&self, raw: &DataRaw) -> (Vec<f32>, Vec<f32>, f32) {
+    fn run_dsp(&self, raw: &DataRaw) -> (Vec<f32>, Vec<f32>, f32) {
         let gx: Vec<f32> = raw.acceleration.iter().map(|a| a.gx).collect();
         let gy: Vec<f32> = raw.acceleration.iter().map(|a| a.gy).collect();
         let gz: Vec<f32> = raw.acceleration.iter().map(|a| a.gz).collect();
