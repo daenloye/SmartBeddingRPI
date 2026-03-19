@@ -9,6 +9,9 @@ use capture::CaptureController;
 use storage::StorageController;
 use utils::logger; // Importamos el logger para usarlo aquí también
 
+use std::thread;
+use std::time::Duration;
+
 fn main() {
     logger("SISTEMA", "INICIANDO SISTEMA");
 
@@ -36,4 +39,12 @@ fn main() {
     
     collecting = true;
     logger("SISTEMA", &format!("Estado de recolección: {}", collecting));
+
+    controller.start();
+
+    // Mantenemos el main vivo (por ahora con un loop simple)
+    loop {
+        thread::sleep(Duration::from_secs(60));
+    }
+
 }

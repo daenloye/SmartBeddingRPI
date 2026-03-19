@@ -49,4 +49,12 @@ impl CaptureController {
 
         logger("CAPTURE", "Todos los periféricos vinculados correctamente.");
     }
+
+    pub fn start(&self) {
+        logger("CAPTURE", "Lanzando hilos de sensores...");
+        self.environment.run();
+        // Aquí irán los .run() de los otros sensores cuando los tengamos
+    }
+
+
 }
