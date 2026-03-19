@@ -54,7 +54,7 @@ impl CaptureController {
         logger("CAPTURE", "Lanzando hilos de sensores...");
         self.environment.run();
         self.acceleration.run();
-        // Aquí irán los .run() de los otros sensores cuando los tengamos
+        self.pressure.run();
     }
 
 
